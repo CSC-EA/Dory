@@ -233,7 +233,6 @@ knowledge/local/**/*.pdf
 knowledge/local/**/*.docx
 knowledge/local/**/*.txt
 
-
 # VSCode settings
 .vscode/
 
@@ -258,5 +257,3 @@ cookies_long.txt
 
 # --- Misc ---
 Misc/
-
-

@@ -1,0 +1,23 @@
+# Core API
+openai>=1.35.0
+python-dotenv>=1.0.0
+
+# Backend
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+
+# Database
+sqlmodel>=0.0.21
+alembic>=1.13.0
+
+# Caching
+redis>=5.0.0
+
+# Frontend
+streamlit>=1.36.0
+requests>=2.32.0
+
+# Utils
+tenacity>=8.2.0
+pydantic>=2.7.0
+
