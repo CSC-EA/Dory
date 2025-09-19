@@ -9,8 +9,13 @@ from sqlmodel import Session as DBSession
 from sqlmodel import select
 
 from server.db import engine, init_db
-from server.models import Message
+from server.models import Faq, Message
 from server.models import Session as ChatSession
+
+
+def normalize(q: str) -> str:
+    return " ".join(q.lower().strip().split())
+
 
 load_dotenv()
 client = OpenAI(api_key=os.getenv("DORY_API_KEY"))
@@ -37,8 +42,30 @@ class ChatIn(BaseModel):
 # Create the /chat endpoint
 @app.post("/chat")
 def chat(payload: ChatIn):
+    qn = normalize(payload.user_text)
+
     with DBSession(engine) as db:
-        # create or reuse chat session
+        # --- 0) FAQ EXACT MATCH ---
+        faq_row = db.exec(select(Faq).where(Faq.question_norm == qn)).first()
+        if faq_row:
+            # (optional) create/reuse session + log both sides so history is complete
+            if payload.session_id is None:
+                s = ChatSession()
+                db.add(s)
+                db.commit()
+                db.refresh(s)
+                session_id = s.id
+            else:
+                session_id = payload.session_id
+
+            db.add(Message(session_id=session_id, role="user", text=payload.user_text))
+            db.add(
+                Message(session_id=session_id, role="assistant", text=faq_row.answer)
+            )
+            db.commit()
+            return {"session_id": session_id, "answer": faq_row.answer}
+
+        # --- 1) Create or reuse chat session ---
         if payload.session_id is None:
             s = ChatSession()
             db.add(s)
@@ -48,31 +75,34 @@ def chat(payload: ChatIn):
         else:
             session_id = payload.session_id
 
-        # log the user message
+        # --- 2) Log user message ---
         db.add(Message(session_id=session_id, role="user", text=payload.user_text))
         db.commit()
 
-    # call the model
-    response = client.responses.create(
-        model=CURRENT_MODEL,
-        input=payload.user_text,
-        max_output_tokens=200,
-        temperature=0.5,
-    )
-    answer = response.output_text
+        # --- 3) Call the model ---
+        try:
+            if not CURRENT_MODEL:
+                raise RuntimeError("No model configured")
+            response = client.responses.create(
+                model=CURRENT_MODEL,
+                input=payload.user_text,
+                max_output_tokens=200,
+                temperature=0.5,
+            )
+            answer = response.output_text
+        except Exception as e:
+            answer = "Sorry, I had a problem generating a response. Please try again."
 
-    # log the assistant message
-    db.add(Message(session_id=session_id, role="assistant", text=answer))
-    db.commit
+        # --- 4) Log assistant message ---
+        db.add(Message(session_id=session_id, role="assistant", text=answer))
+        db.commit()
 
-    # Return answer + session_id so client can continue the same convo
-
-    return {
-        "session_id": session_id,
-        "answer": response.output_text,
-        # "model": CURRENT_MODEL,
-        "tokens_used": response.usage.total_tokens if response.usage else None,
-    }
+        # --- 5) Return ---
+        return {
+            "session_id": session_id,
+            "answer": answer,
+            "tokens_used": response.usage.total_tokens if response.usage else None,
+        }
 
 
 @app.post("/admin/set_model")
