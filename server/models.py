@@ -7,7 +7,7 @@ def now_utc():
     return datetime.now(timezone.utc)
 
 
-class Messsage(SQLModel, table=True):
+class Message(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     session_id: int
     role: str
@@ -19,3 +19,10 @@ class Session(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     started_at: datetime = Field(default_factory=now_utc)
     last_active_at: datetime = Field(default_factory=now_utc)
+
+
+class Faq(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    question_norm: str
+    answer: str
+    created_at: datetime = Field(default_factory=now_utc)
