@@ -6,7 +6,7 @@ from openai import OpenAI
 from pydantic import BaseModel
 
 load_dotenv()
-client = OpenAI(api_key=os.getenv("OPEN_API_KEY"))
+client = OpenAI(api_key=os.getenv("DORY_API_KEY"))
 
 # Model setup
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "gpt-4.1-mini")
@@ -16,7 +16,11 @@ app = FastAPI()
 
 @app.get("/health")
 def health():
-    return {"ok": True}
+    return {
+        "ok": True,
+        "current_model": CURRENT_MODEL,
+        "default_model": DEFAULT_MODEL
+        }
 
 # 1) Define the request body
 class ChatIn(BaseModel):
