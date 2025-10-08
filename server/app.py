@@ -42,6 +42,13 @@ class ChatIn(BaseModel):
 # Create the /chat endpoint
 @app.post("/chat")
 def chat(payload: ChatIn):
+    # guard against empty/whitespace input
+    if not payload.user_text or not payload.user_text.strip():
+        return {
+            "session_id": payload.session_id,
+            "answer": "🤔 I’m all ears—but I didn’t catch a question. Try typing one in!",
+        }
+
     qn = normalize(payload.user_text)
 
     with DBSession(engine) as db:
@@ -80,6 +87,7 @@ def chat(payload: ChatIn):
         db.commit()
 
         # --- 3) Call the model ---
+        response = None  # add this
         try:
             if not CURRENT_MODEL:
                 raise RuntimeError("No model configured")
@@ -90,7 +98,7 @@ def chat(payload: ChatIn):
                 temperature=0.5,
             )
             answer = response.output_text
-        except Exception as e:
+        except Exception:
             answer = "Sorry, I had a problem generating a response. Please try again."
 
         # --- 4) Log assistant message ---
@@ -98,10 +106,11 @@ def chat(payload: ChatIn):
         db.commit()
 
         # --- 5) Return ---
+        tokens_used = getattr(getattr(response, "usage", None), "total_tokens", None)
         return {
             "session_id": session_id,
             "answer": answer,
-            "tokens_used": response.usage.total_tokens if response.usage else None,
+            "tokens_used": tokens_used,
         }
 
 
