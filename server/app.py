@@ -20,6 +20,29 @@ def normalize(q: str) -> str:
 load_dotenv()
 client = OpenAI(api_key=os.getenv("DORY_API_KEY"))
 
+# --- Prompt loaders ---
+PROMPTS_DIR = "prompts"
+COMPACT_PATH = os.path.join(PROMPTS_DIR, "system_dory_compact.md")
+FULL_PATH = os.path.join(PROMPTS_DIR, "system_dory_full.md")
+
+DEFAULT_COMPACT = (
+    "You are Dory, the Digital Engineering Summit assistant. "
+    "Be accurate, concise, friendly; prefer bullets; avoid speculation."
+)
+DEFAULT_FULL = ""  # full is optional per session-first turn
+
+
+def _read_text(path: str, fallback: str) -> str:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception:
+        return fallback
+
+
+SYSTEM_PROMPT_COMPACT = _read_text(COMPACT_PATH, DEFAULT_COMPACT)
+SYSTEM_PROMPT_FULL = _read_text(FULL_PATH, DEFAULT_FULL)
+
 # Model setup
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "gpt-4.1-mini")
 CURRENT_MODEL = DEFAULT_MODEL
@@ -72,28 +95,36 @@ def chat(payload: ChatIn):
             db.commit()
             return {"session_id": session_id, "answer": faq_row.answer}
 
-        # --- 1) Create or reuse chat session ---
+        # --- 1) Create or reuse chat session (Step 2: detect first turn) ---
         if payload.session_id is None:
             s = ChatSession()
             db.add(s)
             db.commit()
             db.refresh(s)
             session_id = s.id
+            first_turn = True
         else:
             session_id = payload.session_id
+            first_turn = False
 
         # --- 2) Log user message ---
         db.add(Message(session_id=session_id, role="user", text=payload.user_text))
         db.commit()
 
-        # --- 3) Call the model ---
-        response = None  # add this
+        # --- 3) Call the model (Step 3: include compact always, full on first turn) ---
+        response = None
         try:
             if not CURRENT_MODEL:
                 raise RuntimeError("No model configured")
+
+            messages = [{"role": "system", "content": SYSTEM_PROMPT_COMPACT}]
+            if first_turn and SYSTEM_PROMPT_FULL:
+                messages.append({"role": "system", "content": SYSTEM_PROMPT_FULL})
+            messages.append({"role": "user", "content": payload.user_text})
+
             response = client.responses.create(
                 model=CURRENT_MODEL,
-                input=payload.user_text,
+                input=messages,
                 max_output_tokens=200,
                 temperature=0.5,
             )
@@ -120,7 +151,6 @@ def set_model(new_model: str = Body(..., embed=True)):
     Hidden admin-only endpoint to change the model at runtime.
     Users will never see this in the UI.
     """
-
     global CURRENT_MODEL
     CURRENT_MODEL = new_model
     return {"ok": True, "current_model": CURRENT_MODEL}
@@ -131,12 +161,7 @@ def get_logs(limit: int = 20, session_id: Optional[int] = None):
     """
     Return the most recent messages (default: 20)
     Optional: filter by a specific session_id to see a single conversation
-
-    Args:
-        limit (int, optional): number of messages to retrieve. Defaults to 20.
-        session_id (Optional[int], optional): session_id to filter by. Defaults to None.
     """
-
     limit = max(1, min(limit, 200))
 
     with DBSession(engine) as db:
@@ -144,11 +169,9 @@ def get_logs(limit: int = 20, session_id: Optional[int] = None):
         if session_id is not None:
             stmt = stmt.where(Message.session_id == session_id)
 
-        # order by newest first using the auto-incrementing ID
         stmt = stmt.order_by(Message.id.desc()).limit(limit)
         rows = db.exec(stmt).all()
 
-        # format minimal, dev-friendly payload
         return [
             {
                 "id": m.id,
