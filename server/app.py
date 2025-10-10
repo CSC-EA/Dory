@@ -1,7 +1,7 @@
 import os
 from typing import Optional
 
-from fastapi import Body, FastAPI
+from fastapi import Body, FastAPI, Request, Response
 from openai import OpenAI
 from pydantic import BaseModel
 from sqlmodel import Session as DBSession
@@ -90,7 +90,7 @@ class ChatIn(BaseModel):
 
 
 @app.post("/chat")
-def chat(payload: ChatIn):
+def chat(payload: ChatIn, request: Request, response: Response):
     # Guard against empty/whitespace input
     if not payload.user_text or not payload.user_text.strip():
         return {
@@ -99,6 +99,12 @@ def chat(payload: ChatIn):
         }
 
     qn = normalize(payload.user_text)
+
+    # Try to pick up session_id from cookie if not provided in payload
+    if payload.session_id is None:
+        cookie_sid = request.cookies.get("dory_session")
+        if cookie_sid and cookie_sid.isdigit():
+            payload.session_id = int(cookie_sid)
 
     with DBSession(engine) as db:
         # --- 0) FAQ EXACT MATCH (toggleable via settings) ---
@@ -133,6 +139,9 @@ def chat(payload: ChatIn):
             db.commit()
             db.refresh(s)
             session_id = s.id
+            response.set_cookie(
+                key="dory_session", value=str(session_id), httponly=True
+            )
             first_turn = True
         else:
             session_id = payload.session_id
