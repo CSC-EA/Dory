@@ -4,6 +4,7 @@ from typing import Optional
 from fastapi import Body, FastAPI, Request, Response
 from openai import OpenAI
 from pydantic import BaseModel
+from rapidfuzz import fuzz, process
 from sqlmodel import Session as DBSession
 from sqlmodel import select
 
@@ -22,6 +23,7 @@ client = OpenAI(api_key=settings.dory_api_key)
 # Runtime config derived from settings
 CURRENT_MODEL = settings.default_model
 PROMPT_MODE = settings.prompt_mode  # compact_only | first_turn_full | always_full
+FUZZY_MATCH_THRESHOLD = settings.fuzzy_match_threshold
 
 # -------------------- Helpers --------------------
 
@@ -131,6 +133,42 @@ def chat(payload: ChatIn, request: Request, response: Response):
                 )
                 db.commit()
                 return {"session_id": session_id, "answer": faq_row.answer}
+
+            # --- 0.b) FAQ FUZZY MATCH (fallback when exact miss) ---
+            # Build choices from all normalized FAQ questions
+            faq_rows = db.exec(select(Faq)).all()
+            choices = [row.question_norm for row in faq_rows] if faq_rows else []
+
+            best = None
+            if choices:
+                # token_set_ratio is robust to word order; strict threshold to avoid false hits
+                match_text, score, _ = process.extractOne(
+                    qn, choices, scorer=fuzz.token_set_ratio
+                )
+                if score >= FUZZY_MATCH_THRESHOLD:
+                    best = next(
+                        (r for r in faq_rows if r.question_norm == match_text), None
+                    )
+
+            if best:
+                # Create/reuse session and log both sides for complete history
+                if payload.session_id is None:
+                    s = ChatSession()
+                    db.add(s)
+                    db.commit()
+                    db.refresh(s)
+                    session_id = s.id
+                else:
+                    session_id = payload.session_id
+
+                db.add(
+                    Message(session_id=session_id, role="user", text=payload.user_text)
+                )
+                db.add(
+                    Message(session_id=session_id, role="assistant", text=best.answer)
+                )
+                db.commit()
+                return {"session_id": session_id, "answer": best.answer}
 
         # --- 1) Create or reuse chat session; detect first turn ---
         if payload.session_id is None:

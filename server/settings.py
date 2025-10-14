@@ -29,3 +29,8 @@ class Settings(BaseSettings):
     full_prompt_path: str | None = Field(None, env="FULL_PROMPT_PATH")
     default_compact_prompt: str | None = None
     default_full_prompt: str | None = None
+
+    # Fuzzy matching
+    fuzzy_match_threshold: int = Field(
+        90, env="FUZZY_MATCH_THRESHOLD"
+    )  # 0–100; start strict, we can tune later
