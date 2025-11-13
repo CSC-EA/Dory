@@ -266,6 +266,7 @@ def chat(payload: ChatIn, request: Request, response: Response):
                 temperature=0.5,
             )
             answer = response.output_text
+
         except Exception as e:
             err = str(e).lower()
             if "timeout" in err:
