@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from typing import Optional
 
 from fastapi import Body, FastAPI, Request, Response
@@ -11,6 +12,7 @@ from sqlmodel import select
 from server.db import engine, init_db
 from server.models import Faq, Message
 from server.models import Session as ChatSession
+from server.retrieval import RAGIndex, search
 from server.settings import Settings
 
 # -------------------- Settings & Clients --------------------
@@ -18,7 +20,11 @@ from server.settings import Settings
 settings = Settings()
 
 # OpenAI client from centralized settings
-client = OpenAI(api_key=settings.dory_api_key)
+client = OpenAI(
+    api_key=settings.dory_api_key,
+    timeout=settings.request_timeout_seconds,
+    max_retries=settings.model_max_retries,
+)
 
 # Runtime config derived from settings
 CURRENT_MODEL = settings.default_model
@@ -61,6 +67,35 @@ DEFAULT_FULL = getattr(settings, "default_full_prompt", "")
 
 SYSTEM_PROMPT_COMPACT = _read_text(COMPACT_PATH, DEFAULT_COMPACT)
 SYSTEM_PROMPT_FULL = _read_text(FULL_PATH, DEFAULT_FULL)
+
+# -------------------- Retrieval Index (RAG) --------------------
+
+# RAG: lazy-loaded index
+INDEX: RAGIndex | None = None
+
+
+def get_index() -> RAGIndex | None:
+    global INDEX
+    if INDEX is None:
+        root = Path(__file__).resolve().parents[1]
+        try:
+            INDEX = RAGIndex.load(root)
+        except Exception:
+            INDEX = None
+    return INDEX
+
+
+def build_context_block(hits: list[dict]) -> str:
+    """
+    Turn top-k hits into a compact context block the model can use.
+    Keep it brief; include source names for transparency.
+    """
+    lines = ["# Knowledge Context (Top Matches)"]
+    for h in hits:
+        src = h["meta"].get("source_name", "source")
+        lines.append(f"- [{h['score']:.2f}] {src}: {h['text']}")
+    return "\n".join(lines[: 1 + min(len(hits), 5)])
+
 
 # -------------------- App Init --------------------
 
@@ -195,6 +230,22 @@ def chat(payload: ChatIn, request: Request, response: Response):
             if not CURRENT_MODEL:
                 raise RuntimeError("No model configured")
 
+            # RAG: build a context block if enabled and index is available
+            context_block = ""
+            if settings.enable_rag:
+                idx = get_index()
+                if idx is not None:
+                    hits = search(
+                        payload.user_text,  # raw user question
+                        settings,
+                        idx,
+                        top_k=5,
+                        min_score=0.30,
+                        margin=0.05,
+                    )
+                    if hits:
+                        context_block = build_context_block(hits)
+
             messages = [{"role": "system", "content": SYSTEM_PROMPT_COMPACT}]
 
             include_full = PROMPT_MODE == "always_full" or (
@@ -203,17 +254,34 @@ def chat(payload: ChatIn, request: Request, response: Response):
             if include_full and SYSTEM_PROMPT_FULL:
                 messages.append({"role": "system", "content": SYSTEM_PROMPT_FULL})
 
+            # If we have knowledge context, add it as a system message
+            if context_block:
+                messages.append({"role": "system", "content": context_block})
+
             messages.append({"role": "user", "content": payload.user_text})
 
             response = client.responses.create(
                 model=CURRENT_MODEL,
                 input=messages,
-                max_output_tokens=200,
                 temperature=0.5,
             )
             answer = response.output_text
-        except Exception:
-            answer = "Sorry, I had a problem generating a response. Please try again."
+        except Exception as e:
+            err = str(e).lower()
+            if "timeout" in err:
+                answer = "Sorry, I’m timing out right now—please try again in a moment."
+            elif "rate limit" in err or "too many requests" in err or "429" in err:
+                answer = (
+                    "I’m getting rate limited at the moment—please try again shortly."
+                )
+            elif "connection" in err or "dns" in err or "resolver" in err:
+                answer = (
+                    "I’m having trouble reaching the model service—please try again."
+                )
+            else:
+                answer = (
+                    "Sorry, I had a problem generating a response. Please try again."
+                )
 
         # --- 4) Log assistant message ---
         db.add(Message(session_id=session_id, role="assistant", text=answer))

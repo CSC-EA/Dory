@@ -1,0 +1,88 @@
+{
+  "generated_at": "2025-10-14T09:47:37Z",
+  "root": "knowledge/local",
+  "count": 9,
+  "files": [
+    {
+      "path": "knowledge/local/Conference Information.pdf",
+      "name": "Conference Information.pdf",
+      "size_bytes": 882505,
+      "modified_unix": 1754045895,
+      "modified_iso": "2025-08-01T10:58:15Z",
+      "mime": "application/pdf",
+      "sha256": "c449b6c851a7f099c2416d4f875f5522f8ef29b7ae9e6f802e87fa99b7a270c1"
+    },
+    {
+      "path": "knowledge/local/Dory___Meged_Resources.pdf",
+      "name": "Dory___Meged_Resources.pdf",
+      "size_bytes": 71279397,
+      "modified_unix": 1757642745,
+      "modified_iso": "2025-09-12T02:05:45Z",
+      "mime": "application/pdf",
+      "sha256": "7f4b04ae444f45a0cc061fe323f836bb5f80fb369fc6fbfd16a9f556de21e45f"
+    },
+    {
+      "path": "knowledge/local/McDermott and Brown - Speaking.png",
+      "name": "McDermott and Brown - Speaking.png",
+      "size_bytes": 322787,
+      "modified_unix": 1754046632,
+      "modified_iso": "2025-08-01T11:10:32Z",
+      "mime": "image/png",
+      "sha256": "12267d951db771be8fb3f73c1ee19515a865339b3edc5a14a98ba22efff5a10c"
+    },
+    {
+      "path": "knowledge/local/Summit Information.docx",
+      "name": "Summit Information.docx",
+      "size_bytes": 22293,
+      "modified_unix": 1754048580,
+      "modified_iso": "2025-08-01T11:43:00Z",
+      "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "sha256": "d09338f02b07983eb372c7642e62d8d3987c9800b3faef570bb0e70b9a8c7f2c"
+    },
+    {
+      "path": "knowledge/local/Summit Main.docx",
+      "name": "Summit Main.docx",
+      "size_bytes": 27447,
+      "modified_unix": 1755472543,
+      "modified_iso": "2025-08-17T23:15:43Z",
+      "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "sha256": "ee6e3500e0659fda6e27660d5df1ea7859dabb275ecb964f3464abc52abecb07"
+    },
+    {
+      "path": "knowledge/local/Summit Optional Masterclasses and Workshops.docx",
+      "name": "Summit Optional Masterclasses and Workshops.docx",
+      "size_bytes": 21041,
+      "modified_unix": 1755472743,
+      "modified_iso": "2025-08-17T23:19:03Z",
+      "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "sha256": "7dac7afeb9908cead44d971bcaa44257dce17d5671f9fd56a2be5551b5511b7c"
+    },
+    {
+      "path": "knowledge/local/Summit Program.docx",
+      "name": "Summit Program.docx",
+      "size_bytes": 19209,
+      "modified_unix": 1755472589,
+      "modified_iso": "2025-08-17T23:16:29Z",
+      "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "sha256": "e495a098a3883840370417f2d1e990bc69e0689e2849d9c2b43cc6d4db4be184"
+    },
+    {
+      "path": "knowledge/local/Summit Speakers.docx",
+      "name": "Summit Speakers.docx",
+      "size_bytes": 22813,
+      "modified_unix": 1755472690,
+      "modified_iso": "2025-08-17T23:18:10Z",
+      "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "sha256": "b389e847b8fe614bb3768477a6b36b65fced581dee7787ec14c2237747c63164"
+    },
+    {
+      "path": "knowledge/local/Talks and Presentations.docx",
+      "name": "Talks and Presentations.docx",
+      "size_bytes": 15937,
+      "modified_unix": 1751541734,
+      "modified_iso": "2025-07-03T11:22:14Z",
+      "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "sha256": "c5137d9e8ba314a6c7e59a2c300f108294c6f49c9041b54a7364e0799b51abbe"
+    }
+  ]
+}
