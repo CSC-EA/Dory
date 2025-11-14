@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     embedding_model: str = Field("text-embedding-3-small", env="EMBEDDING_MODEL")
     embed_batch: int = Field(64, env="EMBED_BATCH")
 
+    # RAG tuning
+    rag_min_score: float = Field(0.40, env="RAG_MIN_SCORE")  # 0–1, higher = stricter
+    rag_margin: float = Field(0.05, env="RAG_MARGIN")
+    rag_top_k: int = Field(5, env="RAG_TOP_K")
+
     # Provider-agnostic embedding settings
     # "openai" | "hf" | "ollama" | "http_compatible"
     embedding_provider: str = Field("openai", env="EMBEDDING_PROVIDER")

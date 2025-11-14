@@ -239,12 +239,22 @@ def chat(payload: ChatIn, request: Request, response: Response):
                         payload.user_text,  # raw user question
                         settings,
                         idx,
-                        top_k=5,
-                        min_score=0.30,
-                        margin=0.05,
+                        top_k=settings.rag_top_k,
+                        min_score=settings.rag_min_score,
+                        margin=settings.rag_margin,
                     )
+
                     if hits:
                         context_block = build_context_block(hits)
+                    else:
+                        # No sufficiently relevant matches: instruct the model to be cautious
+                        context_block = (
+                            "# Knowledge Context (No relevant matches)\n"
+                            "- No sufficiently relevant passages were found in the Summit documents for this question. "
+                            "Answer only if you can do so safely from general knowledge, and make it clear that the detail is "
+                            "not confirmed in the documents; otherwise, say you don’t have enough information and direct the "
+                            "user to official sources (summit website, program PDF, or help desk)."
+                        )
 
             messages = [{"role": "system", "content": SYSTEM_PROMPT_COMPACT}]
 
