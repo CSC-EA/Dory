@@ -1,7 +1,14 @@
 from __future__ import annotations
 
 import os
+import sys
 from datetime import datetime, timezone
+from pathlib import Path
+
+# Make project root importable so "server.*" works when running this script directly
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from dotenv import load_dotenv
 from sqlmodel import Session, select
@@ -57,6 +64,14 @@ SEED_FAQs = [
     {
         "q": "who manages the summit?",
         "a": "The Summit is managed by Consec – Conference and Event Management. Contact: adesummit@consec.com.au or +61 2 6252 1200.",
+    },
+    {
+        "q": "what is the official website for the 2nd australian digital engineering summit?",
+        "a": (
+            "The official website for the 2nd Australian Digital Engineering Summit is:\n\n"
+            "https://consec.eventsair.com/2nd-australian-digital-engineering-summit\n\n"
+            "Use this link for program details, registration, and official updates."
+        ),
     },
 ]
 

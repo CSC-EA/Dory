@@ -1,16 +1,70 @@
 {
-  "generated_at": "2025-10-14T09:47:37Z",
+  "generated_at": "2025-11-18T05:34:47Z",
   "root": "knowledge/local",
-  "count": 9,
+  "count": 15,
   "files": [
     {
-      "path": "knowledge/local/Conference Information.pdf",
-      "name": "Conference Information.pdf",
-      "size_bytes": 882505,
-      "modified_unix": 1754045895,
-      "modified_iso": "2025-08-01T10:58:15Z",
+      "path": "knowledge/local/.DS_Store",
+      "name": ".DS_Store",
+      "size_bytes": 8196,
+      "modified_unix": 1763439014,
+      "modified_iso": "2025-11-18T04:10:14Z",
+      "mime": "application/octet-stream",
+      "sha256": "8847aeabb02434b1b6c8a2f82a57805d2b9686b7bad6b7a8a8e502ad480308be"
+    },
+    {
+      "path": "knowledge/local/Australian Digital Engineering Summit_about.pdf",
+      "name": "Australian Digital Engineering Summit_about.pdf",
+      "size_bytes": 605239,
+      "modified_unix": 1763347140,
+      "modified_iso": "2025-11-17T02:39:00Z",
       "mime": "application/pdf",
-      "sha256": "c449b6c851a7f099c2416d4f875f5522f8ef29b7ae9e6f802e87fa99b7a270c1"
+      "sha256": "50e38b0c025cd3932d37aa6d3aeaead0ee166c58cdcd4d9bba2ab977f92eed9d"
+    },
+    {
+      "path": "knowledge/local/Australian Digital Engineering Summit_overview.pdf",
+      "name": "Australian Digital Engineering Summit_overview.pdf",
+      "size_bytes": 893557,
+      "modified_unix": 1763347120,
+      "modified_iso": "2025-11-17T02:38:40Z",
+      "mime": "application/pdf",
+      "sha256": "edf112db1b4562a0cd115dea748936f31472d4d90eb22f214338de5b306ab30f"
+    },
+    {
+      "path": "knowledge/local/Australian Digital Engineering Summit_program.pdf",
+      "name": "Australian Digital Engineering Summit_program.pdf",
+      "size_bytes": 635783,
+      "modified_unix": 1763347183,
+      "modified_iso": "2025-11-17T02:39:43Z",
+      "mime": "application/pdf",
+      "sha256": "5c6f83f560de3cfc97b2e639b71ff7fe0b3d2e7a5acda22aba9e821a354ec95a"
+    },
+    {
+      "path": "knowledge/local/Australian Digital Engineering Summit_register.pdf",
+      "name": "Australian Digital Engineering Summit_register.pdf",
+      "size_bytes": 6208277,
+      "modified_unix": 1763347162,
+      "modified_iso": "2025-11-17T02:39:22Z",
+      "mime": "application/pdf",
+      "sha256": "817f6d7c53206599aba507bcf57b8bca228ea81e1925e1647a9052a89443856b"
+    },
+    {
+      "path": "knowledge/local/Australian Digital Engineering Summit_speakers.pdf",
+      "name": "Australian Digital Engineering Summit_speakers.pdf",
+      "size_bytes": 2140824,
+      "modified_unix": 1763347220,
+      "modified_iso": "2025-11-17T02:40:20Z",
+      "mime": "application/pdf",
+      "sha256": "115a64bca0cd62022275f0c8fb0d2ba2f075ffaee21b47bddd103657b2968663"
+    },
+    {
+      "path": "knowledge/local/Australian Digital Engineering Summit_workshops.pdf",
+      "name": "Australian Digital Engineering Summit_workshops.pdf",
+      "size_bytes": 1069800,
+      "modified_unix": 1763347246,
+      "modified_iso": "2025-11-17T02:40:46Z",
+      "mime": "application/pdf",
+      "sha256": "bc47262a924d31720c4868e889c3ae6cc2bf6c70a3a28ecc8943ae1b0465577f"
     },
     {
       "path": "knowledge/local/Dory___Meged_Resources.pdf",
@@ -20,15 +74,6 @@
       "modified_iso": "2025-09-12T02:05:45Z",
       "mime": "application/pdf",
       "sha256": "7f4b04ae444f45a0cc061fe323f836bb5f80fb369fc6fbfd16a9f556de21e45f"
-    },
-    {
-      "path": "knowledge/local/McDermott and Brown - Speaking.png",
-      "name": "McDermott and Brown - Speaking.png",
-      "size_bytes": 322787,
-      "modified_unix": 1754046632,
-      "modified_iso": "2025-08-01T11:10:32Z",
-      "mime": "image/png",
-      "sha256": "12267d951db771be8fb3f73c1ee19515a865339b3edc5a14a98ba22efff5a10c"
     },
     {
       "path": "knowledge/local/Summit Information.docx",
@@ -58,15 +103,6 @@
       "sha256": "7dac7afeb9908cead44d971bcaa44257dce17d5671f9fd56a2be5551b5511b7c"
     },
     {
-      "path": "knowledge/local/Summit Program.docx",
-      "name": "Summit Program.docx",
-      "size_bytes": 19209,
-      "modified_unix": 1755472589,
-      "modified_iso": "2025-08-17T23:16:29Z",
-      "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      "sha256": "e495a098a3883840370417f2d1e990bc69e0689e2849d9c2b43cc6d4db4be184"
-    },
-    {
       "path": "knowledge/local/Summit Speakers.docx",
       "name": "Summit Speakers.docx",
       "size_bytes": 22813,
@@ -76,6 +112,15 @@
       "sha256": "b389e847b8fe614bb3768477a6b36b65fced581dee7787ec14c2237747c63164"
     },
     {
+      "path": "knowledge/local/Summit information.pdf",
+      "name": "Summit information.pdf",
+      "size_bytes": 7432956,
+      "modified_unix": 1763346936,
+      "modified_iso": "2025-11-17T02:35:36Z",
+      "mime": "application/pdf",
+      "sha256": "e393cef19cdf2691e43acc741ddead9b433f1d477f8d2fef99e77bd52c4f04ca"
+    },
+    {
       "path": "knowledge/local/Talks and Presentations.docx",
       "name": "Talks and Presentations.docx",
       "size_bytes": 15937,
@@ -83,6 +128,15 @@
       "modified_iso": "2025-07-03T11:22:14Z",
       "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       "sha256": "c5137d9e8ba314a6c7e59a2c300f108294c6f49c9041b54a7364e0799b51abbe"
+    },
+    {
+      "path": "knowledge/local/summit_links.txt",
+      "name": "summit_links.txt",
+      "size_bytes": 0,
+      "modified_unix": 1763444008,
+      "modified_iso": "2025-11-18T05:33:28Z",
+      "mime": "text/plain",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     }
   ]
 }
