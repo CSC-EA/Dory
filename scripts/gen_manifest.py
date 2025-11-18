@@ -1,61 +1,42 @@
-import hashlib
+# scripts/gen_manifest.py
 import json
-import mimetypes
-import os
-import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "knowledge" / "local"
-OUT = ROOT / "knowledge" / "manifest.json"
+LOCAL = ROOT / "knowledge" / "local"
+
+OUT_DE = ROOT / "knowledge" / "manifest_de.json"
+OUT_SUMMIT = ROOT / "knowledge" / "manifest_summit.json"
 
 
-def sha256(path: Path, chunk=1024 * 1024) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        while True:
-            b = f.read(chunk)
-            if not b:
-                break
-            h.update(b)
-    return h.hexdigest()
+def build_manifest(folder: Path):
+    items = []
+    for p in folder.rglob("*"):
+        if p.is_file():
+            items.append({"path": str(p.relative_to(ROOT)), "mime": None})
+    return items
 
 
 def main():
-    if not SRC.exists():
-        raise SystemError(f"Source folder not found: {SRC}")
+    de_dir = LOCAL / "de"
+    summit_dir = LOCAL / "summit"
 
-    items = []
-    for p in sorted(SRC.rglob("*")):
-        if not p.is_file():
-            continue
-        rel = p.relative_to(ROOT).as_posix()
-        size = p.stat().st_size
-        mtime = int(p.stat().st_mtime)
-        mime, _ = mimetypes.guess_type(p.name)
-        items.append(
-            {
-                "path": rel,
-                "name": p.name,
-                "size_bytes": size,
-                "modified_unix": mtime,
-                "modified_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(mtime)),
-                "mime": mime or "application/octet-stream",
-                "sha256": sha256(p),
-            }
-        )
+    if not de_dir.exists():
+        print("[WARN] No DE folder found")
+    if not summit_dir.exists():
+        print("[WARN] No summit folder found")
 
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    manifest = {
-        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "root": "knowledge/local",
-        "count": len(items),
-        "files": items,
-    }
+    # Build manifests
+    de_list = build_manifest(de_dir)
+    summit_list = build_manifest(summit_dir)
 
-    with OUT.open("w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2, ensure_ascii=False)
-    print(f"Wrote {OUT} with {len(items)} item(s).")
+    OUT_DE.write_text(json.dumps({"files": de_list}, indent=2), encoding="utf-8")
+    OUT_SUMMIT.write_text(
+        json.dumps({"files": summit_list}, indent=2), encoding="utf-8"
+    )
+
+    print(f"Wrote {OUT_DE} with {len(de_list)} item(s).")
+    print(f"Wrote {OUT_SUMMIT} with {len(summit_list)} item(s).")
 
 
 if __name__ == "__main__":
