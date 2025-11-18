@@ -1,70 +1,130 @@
 # streamlit_app.py
+
 import os
 from pathlib import Path
+from typing import Any, Dict, List
 
-import requests
 import streamlit as st
+from openai import OpenAI
 
-# ----------------- Config helpers -----------------
+from server.retrieval import RAGIndex, search
+from server.settings import Settings
+
+# ----------------- Settings and clients -----------------
 
 
-def get_api_base() -> str:
+@st.cache_resource
+def get_settings() -> Settings:
     """
-    Determine the base URL for the Dory backend API.
-
-    Priority:
-      1) st.secrets["DORY_API_BASE_URL"] (for Streamlit Cloud / prod)
-      2) env var DORY_API_BASE_URL
-      3) default local FastAPI server: http://127.0.0.1:8000
+    Load Settings once, trying to use Streamlit secrets if present,
+    otherwise falling back to env/.env.
     """
     try:
-        if hasattr(st, "secrets") and "DORY_API_BASE_URL" in st.secrets:
-            return st.secrets["DORY_API_BASE_URL"]
+        # This will raise if secrets are not configured (local dev case)
+        if "DORY_API_KEY" in st.secrets:
+            os.environ["DORY_API_KEY"] = st.secrets["DORY_API_KEY"]
     except Exception:
-        # No secrets file or no key; fall back to env
+        # No secrets file or key, env/.env will be used by Settings
         pass
 
-    env_val = os.getenv("DORY_API_BASE_URL")
-    if env_val:
-        return env_val.strip()
-
-    # Local default
-    return "http://127.0.0.1:8000"
+    settings = Settings()
+    # Ensure RAG is enabled for this Streamlit-only deployment
+    settings.enable_rag = True
+    return settings
 
 
-API_BASE = get_api_base()
+@st.cache_resource
+def get_openai_client(settings: Settings) -> OpenAI:
+    return OpenAI(
+        api_key=settings.dory_api_key,
+        timeout=settings.request_timeout_seconds,
+        max_retries=settings.model_max_retries,
+    )
 
 
-# ----------------- Page setup -----------------
+@st.cache_resource
+def get_rag_index() -> RAGIndex | None:
+    """
+    Load the dual corpus RAG index (DE + Summit) from knowledge/web_cache.
+    """
+    root = Path(__file__).resolve().parent
+    try:
+        return RAGIndex.load(root)
+    except Exception:
+        return None
+
+
+# ----------------- Prompt loading -----------------
+
+
+def _read_text(path: str, fallback: str) -> str:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception:
+        return fallback
+
+
+@st.cache_data
+def get_prompts(settings: Settings) -> tuple[str, str]:
+    """
+    Load compact and full system prompts from disk, with sane defaults.
+    """
+    compact_path = settings.compact_prompt_path or os.getenv(
+        "COMPACT_PROMPT_PATH", "prompts/system_dory_compact.md"
+    )
+    full_path = settings.full_prompt_path or os.getenv(
+        "FULL_PROMPT_PATH", "prompts/system_dory_full.md"
+    )
+
+    default_compact = settings.default_compact_prompt or (
+        "You are Dory, a Digital Engineering assistant for UNSW Canberra. "
+        "Be accurate, concise, friendly; prefer bullets; avoid speculation."
+    )
+    default_full = settings.default_full_prompt or ""
+
+    compact = _read_text(compact_path, default_compact)
+    full = _read_text(full_path, default_full)
+    return compact, full
+
+
+# ----------------- RAG context builder -----------------
+
+
+def build_context_block(hits: List[Dict[str, Any]]) -> str:
+    """
+    Turn top-k hits into a compact context block the model can use.
+    Keep it brief; include source names for transparency.
+    """
+    if not hits:
+        return ""
+    lines = ["# Knowledge Context (Top Matches)"]
+    for h in hits[:5]:
+        src = h["meta"].get("source_name", "source")
+        lines.append(f"- [{h['score']:.2f}] {src}: {h['text']}")
+    return "\n".join(lines)
+
+
+# ----------------- Icon helper -----------------
 
 
 def get_icon_path() -> str | None:
-    """
-    Try to locate a UNSW/Dory icon.
-
-    Checks, in order:
-      - ./static/dory_icon.png
-      - ./static/UNSW_Canberra_logo.png
-      - ./frontend/unsw_icon.(png|jpg|ico) as fallback
-    """
     root = Path(__file__).resolve().parent
-
     candidates = [
-        root / "static" / "dory_icon.png",
         root / "static" / "UNSW_Canberra_logo.png",
+        root / "static" / "dory_icon.png",
         root / "frontend" / "unsw_icon.png",
         root / "frontend" / "unsw_icon.jpg",
-        root / "frontend" / "unsw_icon.ico",
     ]
-
     for p in candidates:
         if p.exists():
             return str(p)
-
     return None
 
 
 ICON_PATH = get_icon_path()
+
+# ----------------- Page config -----------------
 
 st.set_page_config(
     page_title="Dory - Digital Engineering Assistant",
@@ -77,77 +137,94 @@ st.title("Dory - Digital Engineering Assistant")
 if ICON_PATH:
     st.image(ICON_PATH, width=64)
 
-
 st.write(
     """
 I am Dory, your assistant for **Digital Engineering (DE)**. I can help you:
 - explore digital engineering concepts and practices  
 - understand how DE is applied in projects and organisations  
-- navigate information about the **2nd Australian Digital Engineering Summit** (agenda, venue, workshops, speakers, etc.)
+- navigate information about the **2nd Australian Digital Engineering Summit** when you ask about it  
 
-Unlike other Dorys, I do not forget - but I *might* hallucinate.
-I try my best not to, but it is kind of genetic for my breed, so please double-check important details against official sources when it really matters.
+Unlike other Dorys, I do not forget, but I *might* hallucinate.
+I try my best not to, but it is kind of genetic for my breed, so please double check important details against official sources when it really matters.
 """
 )
 
 st.markdown("---")
 
-
 # ----------------- Session state -----------------
 
 if "messages" not in st.session_state:
-    # Chat history for the UI: list of {"role": "user"|"assistant", "content": str}
     st.session_state.messages = []
 
-if "session_id" not in st.session_state:
-    # Backend conversation id (FastAPI /chat session_id)
-    st.session_state.session_id = None
+# ----------------- Core generation logic -----------------
 
 
-# ----------------- Backend interaction -----------------
+def generate_answer(user_text: str) -> str:
+    settings = get_settings()
+    client = get_openai_client(settings)
+    index = get_rag_index()
+    compact_prompt, full_prompt = get_prompts(settings)
 
+    # Decide if this is the first turn for prompt_mode logic
+    is_first_turn = len(st.session_state.messages) == 0
 
-def send_to_backend(user_text: str) -> str:
-    """
-    Send a message to the FastAPI backend and return the assistant's answer.
-    Maintains conversation context by passing and updating `session_id`.
-    """
-    payload = {"user_text": user_text}
+    messages: List[Dict[str, str]] = []
+    messages.append({"role": "system", "content": compact_prompt})
 
-    if st.session_state.session_id is not None:
-        payload["session_id"] = st.session_state.session_id
+    include_full = False
+    if settings.prompt_mode == "always_full":
+        include_full = True
+    elif settings.prompt_mode == "first_turn_full" and is_first_turn:
+        include_full = True
+
+    if include_full and full_prompt:
+        messages.append({"role": "system", "content": full_prompt})
+
+    # RAG context
+    context_block = ""
+    if settings.enable_rag and index is not None:
+        try:
+            hits, domain = search(
+                user_text,
+                settings,
+                index,
+                domain_hint=None,
+            )
+            if hits:
+                context_block = build_context_block(hits)
+        except Exception:
+            context_block = ""
+
+    if context_block:
+        messages.append({"role": "system", "content": context_block})
+
+    messages.append({"role": "user", "content": user_text})
 
     try:
-        resp = requests.post(f"{API_BASE}/chat", json=payload, timeout=30)
-    except requests.exceptions.RequestException as e:
-        return f"Sorry, I could not reach the Dory backend ({e}). Please try again in a moment."
-
-    if resp.status_code != 200:
-        return (
-            f"Backend returned an error (status {resp.status_code}). Please try again."
+        resp = client.responses.create(
+            model=settings.default_model,
+            input=messages,
+            temperature=0.5,
         )
-
-    data = resp.json()
-
-    st.session_state.session_id = data.get("session_id", st.session_state.session_id)
-
-    return data.get("answer", "")
+        return resp.output_text
+    except Exception as e:
+        return f"Sorry, I had a problem generating a response. ({e})"
 
 
 # ----------------- Chat UI -----------------
-
 
 cols = st.columns([1, 3])
 with cols[0]:
     if st.button("Clear conversation"):
         st.session_state.messages = []
-        st.session_state.session_id = None
         st.rerun()
 
+# Show history
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
+# Input
 user_input = st.chat_input("Ask me anything about Digital Engineering or the Summit...")
 
 if user_input:
@@ -155,7 +232,7 @@ if user_input:
     with st.chat_message("user"):
         st.markdown(user_input)
 
-    answer = send_to_backend(user_input)
+    answer = generate_answer(user_input)
 
     st.session_state.messages.append({"role": "assistant", "content": answer})
     with st.chat_message("assistant"):
