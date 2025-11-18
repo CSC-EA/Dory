@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Body, FastAPI, Request, Response
+from fastapi import Body, FastAPI, Query, Request, Response
 from openai import OpenAI
 from pydantic import BaseModel
 from rapidfuzz import fuzz, process
@@ -46,7 +46,7 @@ def _read_text(path: str, fallback: str) -> str:
         return fallback
 
 
-# Prompt paths & defaults can come from settings (preferred) or env, with sane fallbacks
+# Prompt paths and defaults can come from settings (preferred) or env, with sane fallbacks
 COMPACT_PATH = getattr(
     settings,
     "compact_prompt_path",
@@ -60,7 +60,7 @@ FULL_PATH = getattr(
 DEFAULT_COMPACT = getattr(
     settings,
     "default_compact_prompt",
-    "You are Dory, the Digital Engineering Summit assistant. "
+    "You are Dory, a Digital Engineering assistant for UNSW Canberra. "
     "Be accurate, concise, friendly; prefer bullets; avoid speculation.",
 )
 DEFAULT_FULL = getattr(settings, "default_full_prompt", "")
@@ -128,11 +128,11 @@ class ChatIn(BaseModel):
 
 @app.post("/chat")
 def chat(payload: ChatIn, request: Request, response: Response):
-    # Guard against empty/whitespace input
+    # Guard against empty or whitespace input
     if not payload.user_text or not payload.user_text.strip():
         return {
             "session_id": payload.session_id,
-            "answer": "🤔 I’m all ears—but I didn’t catch a question. Try typing one in!",
+            "answer": "🤔 I’m all ears, but I didn’t catch a question. Try typing one in.",
         }
 
     qn = normalize(payload.user_text)
@@ -148,7 +148,7 @@ def chat(payload: ChatIn, request: Request, response: Response):
         if settings.enable_faq_cache:
             faq_row = db.exec(select(Faq).where(Faq.question_norm == qn)).first()
             if faq_row:
-                # Create/reuse session and log both sides for complete history
+                # Create or reuse session and log both sides for complete history
                 if payload.session_id is None:
                     s = ChatSession()
                     db.add(s)
@@ -163,47 +163,76 @@ def chat(payload: ChatIn, request: Request, response: Response):
                 )
                 db.add(
                     Message(
-                        session_id=session_id, role="assistant", text=faq_row.answer
+                        session_id=session_id,
+                        role="assistant",
+                        text=faq_row.answer,
                     )
                 )
                 db.commit()
                 return {"session_id": session_id, "answer": faq_row.answer}
 
             # --- 0.b) FAQ FUZZY MATCH (fallback when exact miss) ---
-            # Build choices from all normalized FAQ questions
-            faq_rows = db.exec(select(Faq)).all()
-            choices = [row.question_norm for row in faq_rows] if faq_rows else []
+            # --- 0.b) FAQ FUZZY MATCH (fallback when exact miss) ---
 
-            best = None
-            if choices:
-                # token_set_ratio is robust to word order; strict threshold to avoid false hits
-                match_text, score, _ = process.extractOne(
-                    qn, choices, scorer=fuzz.token_set_ratio
+        def is_query_about_site(q_norm: str) -> bool:
+            # Only treat as "website" style questions when these hints appear
+            site_hints = [
+                "website",
+                "web site",
+                "link",
+                "url",
+                "register",
+                "registration",
+                "summit site",
+            ]
+            return any(h in q_norm for h in site_hints)
+
+        faq_rows = db.exec(select(Faq)).all()
+        choices = [row.question_norm for row in faq_rows] if faq_rows else []
+
+        best = None
+        if choices:
+            match_text, score, _ = process.extractOne(
+                qn, choices, scorer=fuzz.token_set_ratio
+            )
+
+            # Make fuzzy matching stricter by default
+            effective_threshold = max(FUZZY_MATCH_THRESHOLD, 80)
+
+            if score >= effective_threshold:
+                candidate = next(
+                    (r for r in faq_rows if r.question_norm == match_text), None
                 )
-                if score >= FUZZY_MATCH_THRESHOLD:
-                    best = next(
-                        (r for r in faq_rows if r.question_norm == match_text), None
+
+                if candidate:
+                    # Special guard: do not return the "summit website" FAQ
+                    # unless the current query clearly asks about a site/link.
+                    website_faq_norm = normalize(
+                        "what is the official website for the 2nd australian digital engineering summit?"
                     )
+                    if candidate.question_norm == website_faq_norm:
+                        if is_query_about_site(qn):
+                            best = candidate
+                        else:
+                            best = None
+                    else:
+                        best = candidate
 
-            if best:
-                # Create/reuse session and log both sides for complete history
-                if payload.session_id is None:
-                    s = ChatSession()
-                    db.add(s)
-                    db.commit()
-                    db.refresh(s)
-                    session_id = s.id
-                else:
-                    session_id = payload.session_id
-
-                db.add(
-                    Message(session_id=session_id, role="user", text=payload.user_text)
-                )
-                db.add(
-                    Message(session_id=session_id, role="assistant", text=best.answer)
-                )
+        if best:
+            # Create/reuse session and log both sides for complete history
+            if payload.session_id is None:
+                s = ChatSession()
+                db.add(s)
                 db.commit()
-                return {"session_id": session_id, "answer": best.answer}
+                db.refresh(s)
+                session_id = s.id
+            else:
+                session_id = payload.session_id
+
+            db.add(Message(session_id=session_id, role="user", text=payload.user_text))
+            db.add(Message(session_id=session_id, role="assistant", text=best.answer))
+            db.commit()
+            return {"session_id": session_id, "answer": best.answer}
 
         # --- 1) Create or reuse chat session; detect first turn ---
         if payload.session_id is None:
@@ -213,7 +242,9 @@ def chat(payload: ChatIn, request: Request, response: Response):
             db.refresh(s)
             session_id = s.id
             response.set_cookie(
-                key="dory_session", value=str(session_id), httponly=True
+                key="dory_session",
+                value=str(session_id),
+                httponly=True,
             )
             first_turn = True
         else:
@@ -224,8 +255,8 @@ def chat(payload: ChatIn, request: Request, response: Response):
         db.add(Message(session_id=session_id, role="user", text=payload.user_text))
         db.commit()
 
-        # --- 3) Build messages (compact always; full per PROMPT_MODE) & call model ---
-        response = None
+        # --- 3) Build messages (compact always; full per PROMPT_MODE) and call model ---
+        response_obj = None
         try:
             if not CURRENT_MODEL:
                 raise RuntimeError("No model configured")
@@ -235,26 +266,24 @@ def chat(payload: ChatIn, request: Request, response: Response):
             if settings.enable_rag:
                 idx = get_index()
                 if idx is not None:
-                    hits = search(
-                        payload.user_text,  # raw user question
-                        settings,
-                        idx,
-                        top_k=settings.rag_top_k,
-                        min_score=settings.rag_min_score,
-                        margin=settings.rag_margin,
-                    )
+                    # Be compatible with both:
+                    # - search(query, settings, idx) -> hits
+                    # - search(query, settings, idx) -> (hits, domain)
+                    # res = search(payload.user_text, settings, idx)
+                    # if isinstance(res, tuple) and len(res) == 2:
+                    #     hits, _domain = res
+                    # else:
+                    #     hits, _domain = res, None
 
-                    if hits:
+                    # if hits:
+                    #     context_block = build_context_block(hits)
+                    hits, domain = search(payload.user_text, settings, idx)
+                    # Always supply context if domain is "summit" and user refers to program/sessions/day
+                    if hits and domain == "summit":
                         context_block = build_context_block(hits)
-                    else:
-                        # No sufficiently relevant matches: instruct the model to be cautious
-                        context_block = (
-                            "# Knowledge Context (No relevant matches)\n"
-                            "- No sufficiently relevant passages were found in the Summit documents for this question. "
-                            "Answer only if you can do so safely from general knowledge, and make it clear that the detail is "
-                            "not confirmed in the documents; otherwise, say you don’t have enough information and direct the "
-                            "user to official sources (summit website, program PDF, or help desk)."
-                        )
+                    # Only provide DE context if user asks for DE topics — not Summit
+                    elif hits and domain == "de":
+                        context_block = build_context_block(hits)
 
             messages = [{"role": "system", "content": SYSTEM_PROMPT_COMPACT}]
 
@@ -264,42 +293,49 @@ def chat(payload: ChatIn, request: Request, response: Response):
             if include_full and SYSTEM_PROMPT_FULL:
                 messages.append({"role": "system", "content": SYSTEM_PROMPT_FULL})
 
-            # If we have knowledge context, add it as a system message
             if context_block:
                 messages.append({"role": "system", "content": context_block})
 
             messages.append({"role": "user", "content": payload.user_text})
 
-            response = client.responses.create(
+            response_obj = client.responses.create(
                 model=CURRENT_MODEL,
                 input=messages,
                 temperature=0.5,
             )
-            answer = response.output_text
+            answer = response_obj.output_text
 
         except Exception as e:
-            err = str(e).lower()
-            if "timeout" in err:
-                answer = "Sorry, I’m timing out right now—please try again in a moment."
-            elif "rate limit" in err or "too many requests" in err or "429" in err:
-                answer = (
-                    "I’m getting rate limited at the moment—please try again shortly."
-                )
-            elif "connection" in err or "dns" in err or "resolver" in err:
-                answer = (
-                    "I’m having trouble reaching the model service—please try again."
-                )
-            else:
-                answer = (
-                    "Sorry, I had a problem generating a response. Please try again."
-                )
+            # Temporary debug to surface the real error:
+            answer = f"DEBUG ERROR: {type(e).__name__}: {e}"
+            # err = str(e).lower()
+            # if "timeout" in err:
+            #     answer = (
+            #         "Sorry, I am timing out right now. Please try again in a moment."
+            #     )
+            # elif "rate limit" in err or "too many requests" in err or "429" in err:
+            #     answer = (
+            #         "I am being rate limited at the moment. Please try again shortly."
+            #     )
+            # elif "connection" in err or "dns" in err or "resolver" in err:
+            #     answer = (
+            #         "I am having trouble reaching the model service. Please try again."
+            #     )
+            # else:
+            #     answer = (
+            #         "Sorry, I had a problem generating a response. Please try again."
+            #     )
 
         # --- 4) Log assistant message ---
         db.add(Message(session_id=session_id, role="assistant", text=answer))
         db.commit()
 
         # --- 5) Return ---
-        tokens_used = getattr(getattr(response, "usage", None), "total_tokens", None)
+        tokens_used = getattr(
+            getattr(response_obj, "usage", None),
+            "total_tokens",
+            None,
+        )
         return {
             "session_id": session_id,
             "answer": answer,
@@ -345,6 +381,38 @@ def get_logs(limit: int = 20, session_id: Optional[int] = None):
             }
             for m in rows
         ]
+
+
+@app.get("/admin/debug_rag")
+def debug_rag(q: str = Query(..., description="Raw user query")):
+    """
+    Inspect RAG routing and top hits for a given query.
+    """
+    idx = get_index()
+    if idx is None:
+        return {"ok": False, "reason": "RAG index not loaded"}
+
+    res = search(q, settings, idx)
+    if isinstance(res, tuple) and len(res) == 2:
+        hits, domain = res
+    else:
+        hits, domain = res, None
+
+    return {
+        "ok": True,
+        "query": q,
+        "domain": domain,
+        "hit_count": len(hits),
+        "hits": [
+            {
+                "score": h["score"],
+                "source": h["meta"].get("source_name"),
+                "len": len(h["text"]),
+                "preview": h["text"][:240],
+            }
+            for h in hits[:5]
+        ],
+    }
 
 
 # Admin: diagnostics snapshot

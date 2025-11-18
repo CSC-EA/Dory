@@ -1,21 +1,18 @@
 # server/retrieval.py
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 
 from server.embeddings import make_backend
 from server.settings import Settings
 
-Domain = Literal["de", "summit"]
-
 
 def _load_jsonl(path: Path) -> List[Dict[str, Any]]:
-    """Load line-delimited JSON with one dict per line."""
+    """Load a JSONL file into a list of dicts. Return [] if missing."""
     if not path.exists():
         return []
     items: List[Dict[str, Any]] = []
@@ -24,52 +21,39 @@ def _load_jsonl(path: Path) -> List[Dict[str, Any]]:
             line = line.strip()
             if not line:
                 continue
-            items.append(json.loads(line))
+            try:
+                import json
+
+                items.append(json.loads(line))
+            except Exception:
+                continue
     return items
 
 
 @dataclass
 class RAGIndex:
-    de_vecs: np.ndarray  # Pre-normalized (N_de, D)
+    de_vecs: np.ndarray
     de_meta: List[Dict[str, Any]]
-
-    summit_vecs: np.ndarray  # Pre-normalized (N_summit, D)
+    summit_vecs: np.ndarray
     summit_meta: List[Dict[str, Any]]
 
     @classmethod
     def load(cls, root: Path) -> "RAGIndex":
-        """
-        Load DE and Summit vectors and metadata from disk and normalize vectors once.
-        Expected files (created by ingest_local.py + embed_local.py):
-
-          knowledge/web_cache/chunks_de.jsonl
-          knowledge/web_cache/vectors_de.npy
-
-          knowledge/web_cache/chunks_summit.jsonl
-          knowledge/web_cache/vectors_summit.npy
-        """
         base = root / "knowledge" / "web_cache"
 
-        # ----- DE -----
-        de_vecs_path = base / "vectors_de.npy"
-        if de_vecs_path.exists():
-            de_vecs = np.load(de_vecs_path).astype("float32")
-            de_vecs = de_vecs / (np.linalg.norm(de_vecs, axis=1, keepdims=True) + 1e-9)
-        else:
-            de_vecs = np.zeros((0, 1), dtype="float32")
+        def _load_and_norm(path: Path) -> np.ndarray:
+            if not path.exists():
+                return np.zeros((0, 1), dtype="float32")
+            arr = np.load(path).astype("float32")
+            if arr.size == 0:
+                return np.zeros((0, 1), dtype="float32")
+            norms = np.linalg.norm(arr, axis=1, keepdims=True) + 1e-9
+            return arr / norms
+
+        de_vecs = _load_and_norm(base / "vectors_de.npy")
+        summit_vecs = _load_and_norm(base / "vectors_summit.npy")
 
         de_meta = _load_jsonl(base / "chunks_de.jsonl")
-
-        # ----- Summit -----
-        summit_vecs_path = base / "vectors_summit.npy"
-        if summit_vecs_path.exists():
-            summit_vecs = np.load(summit_vecs_path).astype("float32")
-            summit_vecs = summit_vecs / (
-                np.linalg.norm(summit_vecs, axis=1, keepdims=True) + 1e-9
-            )
-        else:
-            summit_vecs = np.zeros((0, 1), dtype="float32")
-
         summit_meta = _load_jsonl(base / "chunks_summit.jsonl")
 
         return cls(
@@ -80,126 +64,120 @@ class RAGIndex:
         )
 
 
-def _encode_query(settings: Settings, text: str) -> np.ndarray:
-    """
-    Encode a query string into a single normalized embedding vector (D,).
-    Uses the provider-agnostic backend from server.embeddings.
-    """
-    backend = make_backend(settings)
+_BACKEND = None
+
+
+def _get_backend(settings: Settings):
+    global _BACKEND
+    if _BACKEND is None:
+        _BACKEND = make_backend(settings)
+    return _BACKEND
+
+
+def _embed_query(text: str, settings: Settings) -> np.ndarray:
+    """Return a single normalized query vector (D,)."""
+    backend = _get_backend(settings)
     prefix = settings.query_prefix or ""
-    raw_vecs = backend.embed([f"{prefix}{text}"])
-    if not isinstance(raw_vecs, np.ndarray) or raw_vecs.ndim != 2:
-        raise RuntimeError("Embedding backend returned invalid shape for query.")
-    v = raw_vecs[0].astype("float32")
-    v = v / (np.linalg.norm(v) + 1e-9)
-    return v
+    vecs = backend.embed([prefix + text])
+    if not isinstance(vecs, np.ndarray) or vecs.ndim != 2 or vecs.shape[0] != 1:
+        raise RuntimeError(
+            "Embedding backend did not return a single 2D vector for query."
+        )
+    q = vecs[0].astype("float32")
+    q /= np.linalg.norm(q) + 1e-9
+    return q
 
 
-def _cosine_scores(query_vec: np.ndarray, mat: np.ndarray) -> Optional[np.ndarray]:
-    """
-    Compute cosine similarity scores between a normalized query_vec (D,)
-    and a pre-normalized matrix mat (N, D). Returns (N,) or None if empty.
-    """
+def _cosine_scores(q_vec: np.ndarray, mat: np.ndarray) -> np.ndarray:
+    """Cosine similarity assuming both q_vec and mat rows are normalized."""
     if mat.size == 0:
-        return None
-    # mat and query_vec are already normalized so dot product is cosine
-    scores = mat @ query_vec  # (N, D) @ (D,) -> (N,)
-    return scores
+        return np.zeros((0,), dtype="float32")
+    return mat @ q_vec
+
+
+def _top_hits(
+    scores: np.ndarray,
+    records: List[Dict[str, Any]],
+    top_k: int,
+) -> List[Dict[str, Any]]:
+    if scores.size == 0 or not records:
+        return []
+    k = min(top_k, scores.shape[0])
+    order = np.argsort(scores)[::-1][:k]
+    hits: List[Dict[str, Any]] = []
+    for idx in order:
+        rec = records[idx]
+        # ingest_local writes {"meta": meta, "text": body, "len": len(body)}
+        meta = rec.get("meta", {})
+        text = rec.get("text", "")
+        hits.append(
+            {
+                "score": float(scores[idx]),
+                "text": text,
+                "meta": meta,
+            }
+        )
+    return hits
 
 
 def search(
     query: str,
     settings: Settings,
     index: RAGIndex,
-    top_k: Optional[int] = None,
-    min_score: Optional[float] = None,
-    margin: Optional[float] = None,
-) -> List[Dict[str, Any]]:
+    domain_hint: str | None = None,
+) -> Tuple[List[Dict[str, Any]], str | None]:
     """
-    Domain aware semantic search over DE and Summit corpora.
+    Provider agnostic RAG search.
 
-    Returns a list of hits:
-      {
-        "text": <chunk text>,
-        "meta": <chunk meta dict>,
-        "score": <cosine similarity>,
-        "domain": "de" | "summit",
-      }
-
-    If both domains produce max scores below min_score, returns an empty list so
-    the caller can fall back to model only (no RAG context).
+    Returns:
+      (hits, domain) where domain is "de", "summit", or None.
     """
-    # No index loaded
-    if index is None:
-        return []
+    if index.de_vecs.size == 0 and index.summit_vecs.size == 0:
+        return [], None
 
-    # Use settings defaults if not provided
-    if top_k is None:
-        top_k = settings.rag_top_k
-    if min_score is None:
-        min_score = settings.rag_min_score
-    if margin is None:
-        margin = settings.rag_margin
+    q_vec = _embed_query(query, settings)
 
-    # Encode query
-    q_vec = _encode_query(settings, query)
+    top_k = int(getattr(settings, "rag_top_k", 5))
+    min_score = float(getattr(settings, "rag_min_score", 0.75))
+    margin = float(getattr(settings, "rag_margin", 0.05))
 
     # Compute scores for each corpus
-    scores_de = _cosine_scores(q_vec, index.de_vecs)
-    scores_summit = _cosine_scores(q_vec, index.summit_vecs)
+    de_scores = _cosine_scores(q_vec, index.de_vecs)
+    summit_scores = _cosine_scores(q_vec, index.summit_vecs)
 
-    # Handle case where both corpora are empty
-    if scores_de is None and scores_summit is None:
-        return []
+    de_hits = _top_hits(de_scores, index.de_meta, top_k)
+    summit_hits = _top_hits(summit_scores, index.summit_meta, top_k)
 
-    # Compute best scores (0 if corpus missing)
-    best_de = (
-        float(scores_de.max()) if scores_de is not None and scores_de.size else 0.0
-    )
-    best_summit = (
-        float(scores_summit.max())
-        if scores_summit is not None and scores_summit.size
-        else 0.0
-    )
+    best_de = de_hits[0]["score"] if de_hits else 0.0
+    best_summit = summit_hits[0]["score"] if summit_hits else 0.0
 
-    # Explicit case: both domains below min_score  -> no reliable RAG
+    # If caller forces a domain, honor it, but still apply a minimum score
+    if domain_hint == "de":
+        if best_de >= min_score:
+            return de_hits, "de"
+        return [], None
+
+    if domain_hint == "summit":
+        if best_summit >= min_score:
+            return summit_hits, "summit"
+        return [], None
+
+    # Automatic routing
+    # Case 1: both are below min_score -> no RAG context
     if best_de < min_score and best_summit < min_score:
-        return []
+        return [], None
 
-    hits: List[Dict[str, Any]] = []
+    # Case 2: one is clearly stronger than the other by margin
+    if best_summit >= min_score and best_summit >= best_de + margin:
+        return summit_hits, "summit"
 
-    # Collect DE hits above threshold
-    if scores_de is not None:
-        for i, s in enumerate(scores_de):
-            if s >= min_score:
-                meta = index.de_meta[i] if i < len(index.de_meta) else {}
-                hits.append(
-                    {
-                        "text": meta.get("text", ""),
-                        "meta": meta.get("meta", meta),
-                        "score": float(s),
-                        "domain": "de",
-                    }
-                )
+    if best_de >= min_score and best_de >= best_summit + margin:
+        return de_hits, "de"
 
-    # Collect Summit hits above threshold
-    if scores_summit is not None:
-        for i, s in enumerate(scores_summit):
-            if s >= min_score:
-                meta = index.summit_meta[i] if i < len(index.summit_meta) else {}
-                hits.append(
-                    {
-                        "text": meta.get("text", ""),
-                        "meta": meta.get("meta", meta),
-                        "score": float(s),
-                        "domain": "summit",
-                    }
-                )
+    # Case 3: both similar and above threshold: prefer DE by default
+    if best_de >= min_score:
+        return de_hits, "de"
+    if best_summit >= min_score:
+        return summit_hits, "summit"
 
-    # If still no hits (for example all above best but below min_score), exit
-    if not hits:
-        return []
-
-    # Sort by score and apply top_k
-    hits.sort(key=lambda h: h["score"], reverse=True)
-    return hits[:top_k]
+    return [], None

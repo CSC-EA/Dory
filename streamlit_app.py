@@ -17,8 +17,6 @@ def get_api_base() -> str:
       2) env var DORY_API_BASE_URL
       3) default local FastAPI server: http://127.0.0.1:8000
     """
-    # Handle secrets carefully: accessing st.secrets when no secrets.toml exists
-    # raises StreamlitSecretNotFoundError.
     try:
         if hasattr(st, "secrets") and "DORY_API_BASE_URL" in st.secrets:
             return st.secrets["DORY_API_BASE_URL"]
@@ -42,45 +40,53 @@ API_BASE = get_api_base()
 
 def get_icon_path() -> str | None:
     """
-    Try to locate a UNSW icon in ./frontend.
-    Returns a path string if found, else None.
+    Try to locate a UNSW/Dory icon.
+
+    Checks, in order:
+      - ./static/dory_icon.png
+      - ./static/UNSW_Canberra_logo.png
+      - ./frontend/unsw_icon.(png|jpg|ico) as fallback
     """
     root = Path(__file__).resolve().parent
+
     candidates = [
+        root / "static" / "dory_icon.png",
+        root / "static" / "UNSW_Canberra_logo.png",
         root / "frontend" / "unsw_icon.png",
         root / "frontend" / "unsw_icon.jpg",
         root / "frontend" / "unsw_icon.ico",
     ]
+
     for p in candidates:
         if p.exists():
             return str(p)
+
     return None
 
 
 ICON_PATH = get_icon_path()
 
 st.set_page_config(
-    page_title="Dory – Digital Engineering Assistant",
+    page_title="Dory - Digital Engineering Assistant",
     page_icon=ICON_PATH,
     layout="centered",
 )
 
-st.title("Dory – Digital Engineering Assistant")
+st.title("Dory - Digital Engineering Assistant")
 
 if ICON_PATH:
-    # Small logo in the header (optional)
     st.image(ICON_PATH, width=64)
 
 
 st.write(
     """
-I’m Dory, your assistant for **Digital Engineering (DE)**. I can help you:
+I am Dory, your assistant for **Digital Engineering (DE)**. I can help you:
 - explore digital engineering concepts and practices  
 - understand how DE is applied in projects and organisations  
 - navigate information about the **2nd Australian Digital Engineering Summit** (agenda, venue, workshops, speakers, etc.)
 
-Unlike other Dorys, I don’t forget – but I *might* hallucinate.
-I try my best not to, but it’s kind of genetic for my breed, so please double-check important details against official sources when it really matters.
+Unlike other Dorys, I do not forget - but I *might* hallucinate.
+I try my best not to, but it is kind of genetic for my breed, so please double-check important details against official sources when it really matters.
 """
 )
 
@@ -108,14 +114,13 @@ def send_to_backend(user_text: str) -> str:
     """
     payload = {"user_text": user_text}
 
-    # Preserve conversation context across turns
     if st.session_state.session_id is not None:
         payload["session_id"] = st.session_state.session_id
 
     try:
         resp = requests.post(f"{API_BASE}/chat", json=payload, timeout=30)
     except requests.exceptions.RequestException as e:
-        return f"Sorry, I couldn’t reach the Dory backend ({e}). Please try again in a moment."
+        return f"Sorry, I could not reach the Dory backend ({e}). Please try again in a moment."
 
     if resp.status_code != 200:
         return (
@@ -124,7 +129,6 @@ def send_to_backend(user_text: str) -> str:
 
     data = resp.json()
 
-    # Store/refresh session_id from backend
     st.session_state.session_id = data.get("session_id", st.session_state.session_id)
 
     return data.get("answer", "")
@@ -133,7 +137,6 @@ def send_to_backend(user_text: str) -> str:
 # ----------------- Chat UI -----------------
 
 
-# Clear conversation button
 cols = st.columns([1, 3])
 with cols[0]:
     if st.button("Clear conversation"):
@@ -141,24 +144,19 @@ with cols[0]:
         st.session_state.session_id = None
         st.rerun()
 
-# Display existing messages
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# Chat input
 user_input = st.chat_input("Ask me anything about Digital Engineering or the Summit...")
 
 if user_input:
-    # Add user message to history
     st.session_state.messages.append({"role": "user", "content": user_input})
     with st.chat_message("user"):
         st.markdown(user_input)
 
-    # Get assistant answer
     answer = send_to_backend(user_input)
 
-    # Add assistant message to history
     st.session_state.messages.append({"role": "assistant", "content": answer})
     with st.chat_message("assistant"):
         st.markdown(answer)
