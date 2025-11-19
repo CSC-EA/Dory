@@ -10,8 +10,8 @@ class Settings(BaseSettings):
     # Required
     dory_api_key: str = Field(..., env="DORY_API_KEY")
 
-    # Core config
-    default_model: str = Field("gpt-4.1-mini", env="DEFAULT_MODEL")
+    # Core configs
+    default_model: str = Field("gpt-5-mini", env="DEFAULT_MODEL")
     database_url: str = Field("sqlite:///./dory.db", env="DATABASE_URL")
 
     # Prompt behavior
