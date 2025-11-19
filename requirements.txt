@@ -25,3 +25,5 @@ rapidfuzz>=3.6
 
 # RAG Embeddings
 sentence-transformers>=2.3.0
+
+pydantic_settings

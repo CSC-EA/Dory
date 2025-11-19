@@ -1,0 +1,22 @@
+created skeleton and requirements file
+
+# Conflicts:
+#	.gitignore
+
+# Please enter the commit message for your changes. Lines starting
+# with '#' will be ignored, and an empty message aborts the commit.
+Updated .gitignore
+#
+# interactive rebase in progress; onto 07034ac
+# Last command done (1 command done):
+#    pick 5b2d7ab created skeleton and requirements file
+# Next commands to do (24 remaining commands):
+#    pick 0999aee created data/knowledge inside folder and add knowledge files to ignore
+#    pick a890da4 generic QA with model setup and control
+# You are currently rebasing branch 'main' on '07034ac'.
+#
+# Changes to be committed:
+#	new file:   .DS_Store
+#	modified:   .gitignore
+#	new file:   requirements.txt
+#
