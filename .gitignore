@@ -237,3 +237,26 @@ knowledge/local/**/*.txt
 # VSCode settings
 .vscode/
 
+# --- Secrets & temp ---
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.DS_Store
+
+# --- Binary docs kept out of repo (belt-and-braces) ---
+*.pdf
+*.docx
+*.pptx
+*.xlsx
+*.png
+*.jpg
+*.jpeg
+
+# --- Local artifacts you created during testing ---
+cookies.txt
+cookies_long.txt
+
+# --- Misc ---
+Misc/
+
+
