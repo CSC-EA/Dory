@@ -228,6 +228,12 @@ knowledge/local/private_not_for_github/
 # macOS
 .DS_Store
 
+# Prevent accidentally committing large PDFs or summit/de corpora
+knowledge/local/**/*.pdf
+knowledge/local/**/*.docx
+knowledge/local/**/*.txt
+
+
 # VSCode settings
 .vscode/
 
