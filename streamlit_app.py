@@ -33,6 +33,24 @@ def get_unsw_logo_html() -> str:
         return ""
 
 
+def get_dory_logo_html() -> str:
+    # Use the same path that load_icons found
+    root = Path(__file__).resolve().parent
+    for name in ["dory_icon.png", "dory_icon.jpg"]:
+        candidate = root / "static" / name
+        if candidate.exists():
+            try:
+                data = candidate.read_bytes()
+                b64 = base64.b64encode(data).decode("utf-8")
+                return (
+                    f'<img src="data:image/png;base64,{b64}" '
+                    f'width="64" style="margin-right: 1rem;">'
+                )
+            except Exception:
+                return ""
+    return ""
+
+
 @st.cache_resource
 def get_session_logs() -> Dict[str, List[Dict[str, Any]]]:
     """
@@ -431,10 +449,10 @@ def load_icons():
     unsw_logo_path = None
 
     try:
-        dory_icon = Image.open(root / "static" / "dory.png")
+        dory_icon = Image.open(root / "static" / "dory_icon.png")
     except Exception:
         try:
-            dory_icon = Image.open(root / "static" / "dory.jpg")
+            dory_icon = Image.open(root / "static" / "dory_icon.jpg")
         except Exception:
             dory_icon = None
 
@@ -455,19 +473,19 @@ def apply_custom_styling():
     custom_css = """
     <style>
         html, body {
-            background-color: #f8f9fa !important;
+            background-color: #e9ecef !important;  /* darker light grey */
         }
 
         [data-testid="stAppViewContainer"] {
-            background-color: #f8f9fa !important;
+            background-color: #e9ecef !important;
         }
 
         [data-testid="stAppViewContainer"] > .main {
-            background-color: #f8f9fa !important;
+            background-color: #e9ecef !important;
         }
 
         [data-testid="block-container"] {
-            background-color: #f8f9fa !important;
+            background-color: #e9ecef !important;
         }
 
         [data-testid="stSidebar"] {
@@ -613,8 +631,13 @@ apply_custom_styling()
 header_html = f"""
 <div class="gold-header">
     <div style="display: flex; justify-content: space-between; align-items: center;">
-        <div>
-            <h1 class="header-title">Dory - Digital Engineering Assistant</h1>
+        <div style="display: flex; align-items: center;">
+            <div class="logo-container">
+                {get_dory_logo_html()}
+            </div>
+            <div>
+                <h1 class="header-title">Dory - Digital Engineering Assistant</h1>
+            </div>
         </div>
         <div class="logo-container">
             {get_unsw_logo_html()}
