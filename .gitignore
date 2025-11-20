@@ -217,13 +217,13 @@ __marimo__/
 *.db
 
 # Local RAG artifacts
-knowledge/web_cache/*.npy
-knowledge/web_cache/*.jsonl
-knowledge/manifest_de.json
-knowledge/manifest_summit.json
+# knowledge/web_cache/*.npy
+# knowledge/web_cache/*.jsonl
+# knowledge/manifest_de.json
+# knowledge/manifest_summit.json
 
 # Local-only DE or Summit documents if needed
-knowledge/local/private_not_for_github/
+# knowledge/local/private_not_for_github/
 
 # macOS
 .DS_Store
@@ -250,7 +250,6 @@ data/
 *.docx
 *.pptx
 *.xlsx
-*.png
 *.jpg
 *.jpeg
 
