@@ -119,8 +119,8 @@ def try_manual_program_answer(user_text: str) -> str | None:
     is_summit = "summit" in q or "digital engineering summit" in q
     asks_program = any(w in q for w in ["program", "agenda", "schedule", "what is on"])
 
-    asks_day1 = any(w in q for w in ["day 1", "day one", "monday", "24", 24])
-    asks_day2 = any(w in q for w in ["day 2", "day two", "tuesday", "25", 25])
+    asks_day1 = any(w in q for w in ["day 1", "day one", "monday", "24"])
+    asks_day2 = any(w in q for w in ["day 2", "day two", "tuesday", "25"])
 
     # Day 1 only
     if is_summit and asks_program and asks_day1:
