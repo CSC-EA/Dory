@@ -473,19 +473,19 @@ def apply_custom_styling():
     custom_css = """
     <style>
         html, body {
-            background-color: #1ac987 !important;  /* darker light grey */
+            background-color: #3f61c3 !important;  /* darker light grey */
         }
 
         [data-testid="stAppViewContainer"] {
-            background-color: #1ac987 !important;
+            background-color: #3f61c3!important;
         }
 
         [data-testid="stAppViewContainer"] > .main {
-            background-color: #1ac987 !important;
+            background-color: #3f61c3 !important;
         }
 
         [data-testid="block-container"] {
-            background-color: #1ac987 !important;
+            background-color: #3f61c3 !important;
         }
 
         [data-testid="stSidebar"] {
