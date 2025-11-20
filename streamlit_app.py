@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 import streamlit as st
-import tiktoken
 from openai import OpenAI
 
 from server.retrieval import RAGIndex, search
