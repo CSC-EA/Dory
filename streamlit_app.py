@@ -781,7 +781,7 @@ def generate_answer(user_text: str) -> str:
         resp = client.responses.create(
             model=settings.default_model,
             input=messages,
-            temperature=0.5,
+            temperature=0.3,
         )
         answer = resp.output_text
 

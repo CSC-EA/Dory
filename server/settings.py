@@ -16,7 +16,7 @@ class Settings(BaseSettings):
 
     # Prompt behavior
     prompt_mode: str = Field(
-        "first_turn_full", env="PROMPT_MODE"
+        "always_full", env="PROMPT_MODE"
     )  # compact_only | first_turn_full | always_full
 
     # Feature flags
@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     fuzzy_match_threshold: int = Field(90, env="FUZZY_MATCH_THRESHOLD")  # 0–100
 
     # Model call hardening
-    request_timeout_seconds: int = Field(12, env="REQUEST_TIMEOUT_SECONDS")
+    request_timeout_seconds: int = Field(25, env="REQUEST_TIMEOUT_SECONDS")
     model_max_retries: int = Field(2, env="MODEL_MAX_RETRIES")
 
     # Embeddings (generic defaults)
@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     embed_batch: int = Field(64, env="EMBED_BATCH")
 
     # RAG tuning
-    rag_min_score: float = Field(0.35, env="RAG_MIN_SCORE")  # 0–1, higher = stricter
+    rag_min_score: float = Field(0.4, env="RAG_MIN_SCORE")  # 0–1, higher = stricter
     rag_margin: float = Field(0.05, env="RAG_MARGIN")
     rag_top_k: int = Field(5, env="RAG_TOP_K")
 
