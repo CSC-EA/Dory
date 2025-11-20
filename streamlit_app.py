@@ -11,8 +11,13 @@ import streamlit as st
 from openai import OpenAI
 from PIL import Image
 
+from server.db import get_session, init_db
+from server.models import ChatLog
 from server.retrieval import RAGIndex, search
 from server.settings import Settings
+
+# Initialize database schema once
+init_db()
 
 # ----------------- Global logging helpers -----------------
 
@@ -131,6 +136,30 @@ def log_event(
     except Exception:
         # Never break the app because of logging
         pass
+
+    # Save to Neon Postgres DB
+    try:
+        from datetime import datetime
+
+        with get_session() as db:
+            db_log = ChatLog(
+                ts=datetime.fromisoformat(entry["timestamp"]),
+                session_id=session_id,
+                user_text=user_text,
+                answer=answer,
+                domain=domain,
+                used_rag=used_rag,
+                manual_override=manual_override,
+                model=model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cached_tokens=cached_tokens,
+            )
+            db.add(db_log)
+            db.commit()
+    except Exception as e:
+        # Never break app because of logging errors
+        print("DB logging failed:", e)
 
 
 def is_admin() -> bool:
