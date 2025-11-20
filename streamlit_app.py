@@ -473,23 +473,23 @@ def apply_custom_styling():
     custom_css = """
     <style>
         html, body {
-            background-color: rgba(0, 0, 0, 0.3) !important;  /* darker light grey */
+            background-color: #b3b3b3 !important;  /* darker light grey */
         }
 
         [data-testid="stAppViewContainer"] {
-            background-color: rgba(0, 0, 0, 0.3) !important;
+            background-color: #b3b3b3 !important;
         }
 
         [data-testid="stAppViewContainer"] > .main {
-            background-color: rgba(0, 0, 0, 0.3) !important;
+            background-color: #b3b3b3 !important;
         }
 
         [data-testid="block-container"] {
-            background-color: rgba(0, 0, 0, 0.3) !important;
+            background-color: #b3b3b3 !important;
         }
 
         [data-testid="stSidebar"] {
-            background-color: rgba(0, 0, 0, 1) !important;
+            background-color: #b3b3b3 !important;
         }
 
         .gold-header {
