@@ -106,6 +106,106 @@ def build_context_block(hits: List[Dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+# ----------------- Manual override for summit program -----------------
+def try_manual_program_answer(user_text: str) -> str | None:
+    """
+    Manual override for Summit program questions.
+    Uses the official Day 1 and Day 2 program documents.
+    Returns a formatted answer string or None if no override applies.
+    """
+    q = user_text.lower()
+
+    # Simple intent checks
+    is_summit = "summit" in q or "digital engineering summit" in q
+    asks_program = any(w in q for w in ["program", "agenda", "schedule", "what is on"])
+
+    asks_day1 = any(w in q for w in ["day 1", "day one", "monday", "24", 24])
+    asks_day2 = any(w in q for w in ["day 2", "day two", "tuesday", "25", 25])
+
+    # Day 1 only
+    if is_summit and asks_program and asks_day1:
+        return (
+            "Here is the program for Day 1 of the 2nd Australian Digital Engineering Summit "
+            "(Monday 24 November 2025, National Convention Centre Canberra):\n\n"
+            "8:00 - 9:00\n"
+            "  Registration opens\n\n"
+            "9:00 - 10:30  Summit Opening and SESSION 1: Engineering Digital Transformation\n"
+            "  - Welcome to Country and Welcome to the Summit: Prof Sondoss Elsawah\n"
+            "  - Welcome to UNSW Canberra and Opening: Prof Emma Sparks\n"
+            "  - Speakers: Mr Terry Saunder, Dr Stephen Craig, Ms Kerry Lunney\n"
+            "  - Panel: Transformation Through Digital Engineering: How Will We Get There?\n"
+            "    Facilitator: Ms Rachel Hatton\n\n"
+            "10:30 - 11:00\n"
+            "  Morning tea and networking\n\n"
+            "11:05 - 12:30  SESSION 2: Driving Innovations Across the Digital Engineering Ecosystem\n"
+            "  - Speakers: Dr Barclay Brown, Mr Thomas A. McDermott, Dr Sam Davey, "
+            "BRIG GEN (ret) Steve Bleymaier\n"
+            "  - Panel: Building the Digital Engineering Ecosystem - "
+            "Prioritising Technological and Innovation Investments\n"
+            "    Facilitator: Mr Allan Dundas\n\n"
+            "12:30 - 13:30\n"
+            "  Lunch and networking\n\n"
+            "13:35 - 14:50  SESSION 3: Driving the Adoption of Digital Engineering - "
+            "Recruitment, Skillsets and Career Pathways\n"
+            "  - Speakers: Ms Lucy Poole, Prof Sondoss Elsawah, BRIG Jennifer Harris\n"
+            "  - Panel: Creating the Digital Workforce: What Are Opportunities and Challenges?\n"
+            "    Facilitator: Ms Heather Nicoll\n\n"
+            "14:55 - 15:30\n"
+            "  Afternoon tea and networking\n\n"
+            "15:35 - 17:00  SESSION 4: Digital Engineering - Creating and Realizing New Value "
+            "and Summit Closing\n"
+            "  - Speakers: Mr Jawahar Bhalla, Mr Adrian Piani, CDRE Andrew Macalister\n"
+            "  - Panel: How Can Organisations Use Digital Engineering to Drive Value Across "
+            "the Whole Lifecycle?\n"
+            "    Facilitator: Ms Kerry Lunney\n\n"
+            "Summit managers: Consec - Conference and Event Management "
+            "(adesummit@consec.com.au, +61 2 6252 1200)."
+        )
+
+    # Day 2 only
+    if is_summit and asks_program and asks_day2:
+        return (
+            "Here is the program for Day 2 of the 2nd Australian Digital Engineering Summit "
+            "(Tuesday 25 November 2025):\n\n"
+            "Online delivery:\n"
+            "  9:00 - 13:00  Applications of Generative AI with Large Language Models (online)\n"
+            "    Facilitator: Dr Barclay Brown\n\n"
+            "  13:00 - 16:00  Mission Engineering Primer (online)\n"
+            "    Facilitator: Dr Braden McGrath\n\n"
+            "In person delivery:\n"
+            "  9:00 - 12:00  Mission Engineering Advanced Workshop (in person)\n"
+            "    Facilitator: Dr Braden McGrath\n\n"
+            "  13:00 - 15:00  Low Cost Digitisation for SMEs: Unlocking Industry 4.0 Benefits (in person)\n"
+            "    Facilitators: Dr Matthew Doolan and Dr Michael Stevens\n\n"
+            "Summit managers: Consec - Conference and Event Management "
+            "(adesummit@consec.com.au, +61 2 6252 1200)."
+        )
+
+    # Full two day program
+    if is_summit and asks_program and not (asks_day1 or asks_day2):
+        return (
+            "Here is a summary of the two day program for the 2nd Australian Digital Engineering Summit:\n\n"
+            "Day 1 - Monday 24 November 2025 (National Convention Centre Canberra)\n"
+            "  - Registration from 8:00\n"
+            "  - Summit Opening and Session 1: Engineering Digital Transformation\n"
+            "  - Session 2: Driving Innovations Across the Digital Engineering Ecosystem\n"
+            "  - Session 3: Driving the Adoption of Digital Engineering - Recruitment, Skillsets "
+            "and Career Pathways\n"
+            "  - Session 4: Digital Engineering - Creating and Realizing New Value and Summit closing\n"
+            "  - Morning tea, lunch and afternoon tea with networking\n\n"
+            "Day 2 - Tuesday 25 November 2025\n"
+            "  Online:\n"
+            "    - Applications of Generative AI with Large Language Models (morning)\n"
+            "    - Mission Engineering Primer (afternoon)\n"
+            "  In person:\n"
+            "    - Mission Engineering Advanced Workshop (morning)\n"
+            "    - Low Cost Digitisation for SMEs: Unlocking Industry 4.0 Benefits (afternoon)\n\n"
+            "For any last minute updates or room details, please refer to the official Summit website."
+        )
+
+    return None
+
+
 # ----------------- Icon helper -----------------
 
 
@@ -161,6 +261,11 @@ if "messages" not in st.session_state:
 
 
 def generate_answer(user_text: str) -> str:
+    # Manual override for Summit program questions
+    manual = try_manual_program_answer(user_text)
+    if manual is not None:
+        return manual
+
     settings = get_settings()
     client = get_openai_client(settings)
     index = get_rag_index()
