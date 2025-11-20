@@ -1,11 +1,13 @@
 # streamlit_app.py
 
 import os
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
 
 import streamlit as st
+import tiktoken
 from openai import OpenAI
 
 from server.retrieval import RAGIndex, search
@@ -15,22 +17,11 @@ from server.settings import Settings
 
 
 @st.cache_resource
-def get_global_log() -> List[Dict[str, Any]]:
+def get_session_logs() -> Dict[str, List[Dict[str, Any]]]:
     """
-    Shared log for this app instance.
-
-    Each entry:
-      {
-        "timestamp": ISO timestamp,
-        "user_text": str,
-        "answer": str,
-        "domain": "de" | "summit" | None,
-        "used_rag": bool,
-        "manual_override": bool,
-        "model": str,
-      }
+    Store logs per session: {session_id: [log_entries]}
     """
-    return []
+    return {}
 
 
 def log_event(
@@ -41,7 +32,14 @@ def log_event(
     used_rag: bool,
     manual_override: bool,
     model: str,
+    session_id: str | None,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    cached_tokens: int = 0,
 ) -> None:
+    if not session_id:
+        return  # Skip if we did not generate a session id
+
     entry = {
         "timestamp": datetime.utcnow().isoformat(),
         "user_text": user_text,
@@ -50,13 +48,18 @@ def log_event(
         "used_rag": used_rag,
         "manual_override": manual_override,
         "model": model,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "cached_tokens": cached_tokens,
     }
 
-    # Append to in memory log
-    log = get_global_log()
-    log.append(entry)
+    # In memory per session log
+    session_logs = get_session_logs()
+    if session_id not in session_logs:
+        session_logs[session_id] = []
+    session_logs[session_id].append(entry)
 
-    # Best effort append to CSV on disk
+    # Also append to CSV for persistence
     try:
         import csv
 
@@ -65,23 +68,31 @@ def log_event(
         logs_dir.mkdir(parents=True, exist_ok=True)
         csv_path = logs_dir / "chat_log.csv"
 
+        csv_entry = entry.copy()
+        csv_entry["session_id"] = session_id
+        csv_entry["ts"] = csv_entry.pop("timestamp")  # match previous ts field
+
         file_exists = csv_path.exists()
         with csv_path.open("a", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(
                 f,
                 fieldnames=[
-                    "timestamp",
+                    "ts",
+                    "session_id",
                     "user_text",
                     "answer",
                     "domain",
                     "used_rag",
                     "manual_override",
                     "model",
+                    "input_tokens",
+                    "output_tokens",
+                    "cached_tokens",
                 ],
             )
             if not file_exists:
                 writer.writeheader()
-            writer.writerow(entry)
+            writer.writerow(csv_entry)
     except Exception:
         # Never break the app because of logging
         pass
@@ -204,21 +215,95 @@ def build_context_block(hits: List[Dict[str, Any]]) -> str:
 # ----------------- Manual override for summit program -----------------
 
 
-def try_manual_program_answer(user_text: str) -> str | None:
+def _normalize(text: str) -> str:
+    return " ".join(text.lower().strip().split())
+
+
+def _looks_like_summit_question(q: str) -> bool:
+    """
+    Textual hints that the user is talking about the Summit.
+    """
+    q = q.lower()
+    keywords = [
+        "summit",
+        "digital engineering summit",
+        "ades",
+        "conference program",
+        "summit program",
+        "summit agenda",
+    ]
+    return any(k in q for k in keywords)
+
+
+def _classify_program_request(q: str) -> str | None:
+    """
+    Return "day1", "day2", "both" or None.
+
+    Only checks for program-ish queries, does not decide
+    whether this is Summit or general DE.
+    """
+    q = q.lower()
+
+    # Must look like a program/agenda/schedule query
+    if not any(
+        w in q
+        for w in [
+            "program",
+            "agenda",
+            "schedule",
+            "what is on",
+            "what is happening",
+            "line up",
+            "sessions on",
+        ]
+    ):
+        return None
+
+    day1_tokens = ["day 1", "day one", "monday", "24"]
+    day2_tokens = ["day 2", "day two", "tuesday", "25"]
+
+    day1_hit = any(t in q for t in day1_tokens)
+    day2_hit = any(t in q for t in day2_tokens)
+
+    if day1_hit and not day2_hit:
+        return "day1"
+    if day2_hit and not day1_hit:
+        return "day2"
+    if day1_hit and day2_hit:
+        return "both"
+
+    # Program-ish but no explicit day
+    return "both"
+
+
+def try_manual_program_answer(user_text: str, in_summit_context: bool) -> str | None:
     """
     Manual override for Summit program questions.
-    Uses the official Day 1 and Day 2 program documents.
-    Returns a formatted answer string or None if no override applies.
+
+    Uses:
+      - Current question text
+      - Whether the session is already in summit_mode
+    to decide whether to intercept the question.
     """
-    q = user_text.lower()
+    q = _normalize(user_text)
 
-    is_summit = "summit" in q or "digital engineering summit" in q
-    asks_program = any(w in q for w in ["program", "agenda", "schedule", "what is on"])
+    # 1) Is this a program-like question at all?
+    day_type = _classify_program_request(q)
+    if day_type is None:
+        return None
 
-    asks_day1 = any(w in q for w in ["day 1", "day one", "monday", "24"])
-    asks_day2 = any(w in q for w in ["day 2", "day two", "tuesday", "25"])
+    # 2) Decide if we should treat this as Summit related
+    is_explicit_summit = _looks_like_summit_question(q)
+    is_summit = is_explicit_summit or in_summit_context
 
-    if is_summit and asks_program and asks_day1:
+    if not is_summit:
+        # It is a program question, but we do not have evidence
+        # that it is about the Summit, so let the model handle it.
+        return None
+
+    # 3) Now we know: program-ish AND Summit context, so override
+
+    if day_type == "day1":
         return (
             "Here is the program for Day 1 of the 2nd Australian Digital Engineering Summit "
             "(Monday 24 November 2025, National Convention Centre Canberra):\n\n"
@@ -255,7 +340,7 @@ def try_manual_program_answer(user_text: str) -> str | None:
             "    Facilitator: Ms Kerry Lunney\n\n"
         )
 
-    if is_summit and asks_program and asks_day2:
+    if day_type == "day2":
         return (
             "Here is the program for Day 2 of the 2nd Australian Digital Engineering Summit "
             "(Tuesday 25 November 2025):\n\n"
@@ -273,48 +358,99 @@ def try_manual_program_answer(user_text: str) -> str | None:
             "(adesummit@consec.com.au, +61 2 6252 1200)."
         )
 
-    if is_summit and asks_program and not (asks_day1 or asks_day2):
-        return (
-            "Here is a summary of the two day program for the 2nd Australian Digital Engineering Summit:\n\n"
-            "Day 1 - Monday 24 November 2025 (National Convention Centre Canberra)\n"
-            "  - Registration from 8:00\n"
-            "  - Summit Opening and Session 1: Engineering Digital Transformation\n"
-            "  - Session 2: Driving Innovations Across the Digital Engineering Ecosystem\n"
-            "  - Session 3: Driving the Adoption of Digital Engineering - Recruitment, Skillsets "
-            "and Career Pathways\n"
-            "  - Session 4: Digital Engineering - Creating and Realizing New Value and Summit closing\n"
-            "  - Morning tea, lunch and afternoon tea with networking\n\n"
-            "Day 2 - Tuesday 25 November 2025\n"
-            "  Online:\n"
-            "    - Applications of Generative AI with Large Language Models (morning)\n"
-            "    - Mission Engineering Primer (afternoon)\n"
-            "  In person:\n"
-            "    - Mission Engineering Advanced Workshop (morning)\n"
-            "    - Low Cost Digitisation for SMEs: Unlocking Industry 4.0 Benefits (afternoon)\n\n"
-            "For any last minute updates or room details, please refer to the official Summit website: https://consec.eventsair.com/2nd-australian-digital-engineering-summit"
-        )
-
-    return None
+    # "both" or generic program question in Summit context
+    return (
+        "Here is a summary of the two day program for the 2nd Australian Digital Engineering Summit:\n\n"
+        "Day 1 - Monday 24 November 2025 (National Convention Centre Canberra)\n"
+        "  - Registration from 8:00\n"
+        "  - Summit Opening and Session 1: Engineering Digital Transformation\n"
+        "  - Session 2: Driving Innovations Across the Digital Engineering Ecosystem\n"
+        "  - Session 3: Driving the Adoption of Digital Engineering - Recruitment, Skillsets "
+        "and Career Pathways\n"
+        "  - Session 4: Digital Engineering - Creating and Realizing New Value and Summit closing\n"
+        "  - Morning tea, lunch and afternoon tea with networking\n\n"
+        "Day 2 - Tuesday 25 November 2025\n"
+        "  Online:\n"
+        "    - Applications of Generative AI with Large Language Models (morning)\n"
+        "    - Mission Engineering Primer (afternoon)\n"
+        "  In person:\n"
+        "    - Mission Engineering Advanced Workshop (morning)\n"
+        "    - Low Cost Digitisation for SMEs: Unlocking Industry 4.0 Benefits (afternoon)\n\n"
+        "For any last minute updates or room details, please refer to the official Summit website: "
+        "https://consec.eventsair.com/2nd-australian-digital-engineering-summit"
+    )
 
 
 # ----------------- Icon helper -----------------
 
 
-def get_icon_path() -> str | None:
+def get_icon_paths() -> tuple[str | None, str | None]:
+    """Return both Dory icon path and UNSW logo path - scan once"""
     root = Path(__file__).resolve().parent
-    candidates = [
-        root / "static" / "UNSW_Canberra_logo.png",
-        root / "static" / "dory_icon.png",
-        root / "frontend" / "unsw_icon.png",
-        root / "frontend" / "unsw_icon.jpg",
-    ]
-    for p in candidates:
-        if p.exists():
-            return str(p)
-    return None
+    static_dir = root / "static"
+
+    dory_path = None
+    unsw_path = None
+
+    # Scan static directory once for both icons
+    if static_dir.exists():
+        for file_path in static_dir.iterdir():
+            if file_path.is_file():
+                if "dory" in file_path.name.lower() and file_path.suffix.lower() in [
+                    ".png",
+                    ".jpg",
+                    ".jpeg",
+                ]:
+                    dory_path = str(file_path)
+                elif "unsw" in file_path.name.lower() and file_path.suffix.lower() in [
+                    ".png",
+                    ".jpg",
+                    ".jpeg",
+                ]:
+                    unsw_path = str(file_path)
+
+    return dory_path, unsw_path
 
 
-ICON_PATH = get_icon_path()
+DORY_ICON_PATH, UNSW_LOGO_PATH = get_icon_paths()
+
+
+def apply_custom_styling():
+    """Apply custom CSS for background color and UNSW gold header"""
+    custom_css = """
+    <style>
+        /* Change background color from black to light grey */
+        .main .block-container {
+            background-color: #f8f9fa;
+        }
+        
+        /* UNSW Gold header background */
+        .gold-header {
+            background-color: #FFCD00;  /* UNSW Gold */
+            padding: 1.5rem;
+            border-radius: 0.5rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        
+        /* Header title styling */
+        .header-title {
+            color: #000000;  /* UNSW Black */
+            margin: 0;
+            font-size: 2.5rem;
+            font-weight: 700;
+        }
+        
+        /* Logo container */
+        .logo-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100%;
+        }
+    </style>
+    """
+    st.markdown(custom_css, unsafe_allow_html=True)
 
 
 # --- Analytics bar ---
@@ -324,29 +460,91 @@ def render_analytics_sidebar() -> None:
     if not is_admin():
         return
 
-    log = get_global_log()
+    session_logs = get_session_logs()
 
     st.sidebar.header("Analytics")
 
-    st.sidebar.write(f"Total turns: {len(log)}")
+    # Overall stats
+    total_sessions = len(session_logs)
+    total_turns = sum(len(logs) for logs in session_logs.values())
 
-    if log:
-        de_count = sum(1 for r in log if r.get("domain") == "de")
-        summit_count = sum(1 for r in log if r.get("domain") == "summit")
-        other_count = len(log) - de_count - summit_count
-        override_count = sum(1 for r in log if r.get("manual_override"))
+    st.sidebar.subheader("Overview")
+    st.sidebar.write(f"Total sessions: {total_sessions}")
+    st.sidebar.write(f"Total turns: {total_turns}")
 
-        st.sidebar.write(f"DE queries: {de_count}")
-        st.sidebar.write(f"Summit queries: {summit_count}")
-        st.sidebar.write(f"Other: {other_count}")
-        st.sidebar.write(f"Manual program answers: {override_count}")
+    if not session_logs:
+        st.sidebar.write("No session data yet.")
+        return
 
-        import json
+    # Session selector
+    st.sidebar.subheader("Session details")
 
-        st.sidebar.download_button(
-            "Download chat log (JSON)",
-            data=json.dumps(log, ensure_ascii=False, indent=2),
-            file_name="dory_chat_log.json",
+    sessions = sorted(session_logs.keys(), reverse=True)
+    selected_session = st.sidebar.selectbox(
+        "Select session",
+        sessions,
+        format_func=lambda x: f"Session {x[:8]}... ({len(session_logs[x])} turns)",
+    )
+
+    if not selected_session:
+        return
+
+    session_data = session_logs[selected_session]
+    # Token stats per session
+    total_in = sum((r.get("input_tokens") or 0) for r in session_data)
+    total_out = sum((r.get("output_tokens") or 0) for r in session_data)
+    total_cached = sum((r.get("cached_tokens") or 0) for r in session_data)
+
+    st.sidebar.write(f"Input tokens: {total_in}")
+    st.sidebar.write(f"Output tokens: {total_out}")
+    st.sidebar.write(f"Cached tokens: {total_cached}")
+
+    st.sidebar.write(f"Session id: `{selected_session}`")
+    st.sidebar.write(f"Turns in session: {len(session_data)}")
+
+    # Session specific stats
+    de_count = sum(1 for r in session_data if r.get("domain") == "de")
+    summit_count = sum(1 for r in session_data if r.get("domain") == "summit")
+    override_count = sum(1 for r in session_data if r.get("manual_override"))
+    rag_count = sum(1 for r in session_data if r.get("used_rag"))
+
+    st.sidebar.write(f"DE queries: {de_count}")
+    st.sidebar.write(f"Summit queries: {summit_count}")
+    st.sidebar.write(f"Manual overrides: {override_count}")
+    st.sidebar.write(f"RAG used: {rag_count}")
+
+    # Conversation flow preview
+    st.sidebar.subheader("Conversation flow")
+    for i, turn in enumerate(session_data):
+        preview = (turn["user_text"] or "")[:60]
+        st.sidebar.write(f"{i + 1}. {preview}...")
+
+    # Download buttons
+    import json
+
+    col1, col2 = st.sidebar.columns(2)
+
+    with col1:
+        st.download_button(
+            "This session (JSON)",
+            data=json.dumps(session_data, ensure_ascii=False, indent=2),
+            file_name=f"dory_session_{selected_session[:8]}.json",
+            mime="application/json",
+        )
+
+    with col2:
+        all_sessions_data = {
+            "sessions": session_logs,
+            "summary": {
+                "total_sessions": total_sessions,
+                "total_turns": total_turns,
+                "generated_at": datetime.utcnow().isoformat(),
+            },
+        }
+        st.download_button(
+            "All sessions",
+            data=json.dumps(all_sessions_data, ensure_ascii=False, indent=2),
+            file_name="dory_all_sessions.json",
             mime="application/json",
         )
 
@@ -355,16 +553,30 @@ def render_analytics_sidebar() -> None:
 
 st.set_page_config(
     page_title="Dory - Digital Engineering Assistant",
-    page_icon=ICON_PATH,
+    page_icon=DORY_ICON_PATH,
     layout="centered",
 )
 
 render_analytics_sidebar()
 
-st.title("Dory - Digital Engineering Assistant")
+# Apply custom styling
+apply_custom_styling()
 
-if ICON_PATH:
-    st.image(ICON_PATH, width=64)
+# UNSW Gold header with title and logo INSIDE
+header_html = f"""
+<div class="gold-header">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <h1 class="header-title">Dory - Digital Engineering Assistant</h1>
+        </div>
+        <div class="logo-container">
+            {f'<img src="{UNSW_LOGO_PATH}" width="80" style="margin-left: 1rem;">' if UNSW_LOGO_PATH else ""}
+        </div>
+    </div>
+</div>
+"""
+st.markdown(header_html, unsafe_allow_html=True)
+
 
 st.write(
     """
@@ -385,21 +597,37 @@ st.markdown("---")
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
+if "session_id" not in st.session_state:
+    # Random opaque id per Streamlit session
+    st.session_state.session_id = uuid.uuid4().hex
+if "summit_mode" not in st.session_state:
+    # Becomes True once the user clearly asks about the Summit
+    st.session_state.summit_mode = False
+
 
 # ----------------- Core generation logic -----------------
 
 
 def generate_answer(user_text: str) -> str:
+    # Update summit conversation context flag
+    q_lower = _normalize(user_text)
+    if _looks_like_summit_question(q_lower):
+        st.session_state.summit_mode = True
+
     # 1) Manual override for Summit program questions
-    manual = try_manual_program_answer(user_text)
+    manual = try_manual_program_answer(user_text, st.session_state.summit_mode)
     if manual is not None:
         log_event(
-            user_text,
-            manual,
+            user_text=user_text,
+            answer=manual,
             domain="summit",
             used_rag=False,
             manual_override=True,
             model="manual",
+            session_id=st.session_state.get("session_id"),
+            input_tokens=0,
+            output_tokens=0,
+            cached_tokens=0,
         )
         return manual
 
@@ -449,6 +677,8 @@ def generate_answer(user_text: str) -> str:
     messages.append({"role": "user", "content": user_text})
 
     # 4) Call model
+    input_tokens = output_tokens = cached_tokens = 0
+
     try:
         resp = client.responses.create(
             model=settings.default_model,
@@ -456,17 +686,27 @@ def generate_answer(user_text: str) -> str:
             temperature=0.5,
         )
         answer = resp.output_text
+
+        usage = getattr(resp, "usage", None)
+        if usage is not None:
+            input_tokens = getattr(usage, "input_tokens", 0)
+            output_tokens = getattr(usage, "output_tokens", 0)
+            cached_tokens = getattr(usage, "cached_input_tokens", 0)
     except Exception as e:
         answer = f"Sorry, I had a problem generating a response. ({e})"
 
     # 5) Log turn for analytics
     log_event(
-        user_text,
-        answer,
+        user_text=user_text,
+        answer=answer,
         domain=domain,
         used_rag=used_rag,
         manual_override=False,
         model=settings.default_model,
+        session_id=st.session_state.get("session_id"),
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cached_tokens=cached_tokens,
     )
 
     return answer
