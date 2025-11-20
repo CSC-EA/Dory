@@ -489,7 +489,7 @@ def apply_custom_styling():
         }
 
         [data-testid="stSidebar"] {
-            background-color: #b3b3b3 !important;
+            background-color: #000000 !important;
         }
 
         .gold-header {
