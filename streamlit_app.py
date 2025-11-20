@@ -1,6 +1,7 @@
 # streamlit_app.py
 
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -9,6 +10,103 @@ from openai import OpenAI
 
 from server.retrieval import RAGIndex, search
 from server.settings import Settings
+
+# ----------------- Global logging helpers -----------------
+
+
+@st.cache_resource
+def get_global_log() -> List[Dict[str, Any]]:
+    """
+    Shared log for this app instance.
+
+    Each entry:
+      {
+        "timestamp": ISO timestamp,
+        "user_text": str,
+        "answer": str,
+        "domain": "de" | "summit" | None,
+        "used_rag": bool,
+        "manual_override": bool,
+        "model": str,
+      }
+    """
+    return []
+
+
+def log_event(
+    user_text: str,
+    answer: str,
+    *,
+    domain: str | None,
+    used_rag: bool,
+    manual_override: bool,
+    model: str,
+) -> None:
+    entry = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "user_text": user_text,
+        "answer": answer,
+        "domain": domain,
+        "used_rag": used_rag,
+        "manual_override": manual_override,
+        "model": model,
+    }
+
+    # Append to in memory log
+    log = get_global_log()
+    log.append(entry)
+
+    # Best effort append to CSV on disk
+    try:
+        import csv
+
+        root = Path(__file__).resolve().parent
+        logs_dir = root / "admin" / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        csv_path = logs_dir / "chat_log.csv"
+
+        file_exists = csv_path.exists()
+        with csv_path.open("a", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(
+                f,
+                fieldnames=[
+                    "timestamp",
+                    "user_text",
+                    "answer",
+                    "domain",
+                    "used_rag",
+                    "manual_override",
+                    "model",
+                ],
+            )
+            if not file_exists:
+                writer.writeheader()
+            writer.writerow(entry)
+    except Exception:
+        # Never break the app because of logging
+        pass
+
+
+def is_admin() -> bool:
+    """
+    Return True only if the caller has the correct admin token in the URL.
+
+    Usage:
+      1) Set DORY_ADMIN_TOKEN in Streamlit secrets.
+      2) Open the app with ?admin=<that_token> in the URL.
+    """
+    try:
+        admin_token = st.secrets.get("DORY_ADMIN_TOKEN")
+    except Exception:
+        admin_token = None
+
+    if not admin_token:
+        return False
+
+    params = st.query_params
+    supplied = params.get("admin", "")
+    return supplied == admin_token
+
 
 # ----------------- Settings and clients -----------------
 
@@ -21,15 +119,12 @@ def get_settings() -> Settings:
     """
 
     try:
-        # This will raise if secrets are not configured (local dev case)
         if "DORY_API_KEY" in st.secrets:
             os.environ["DORY_API_KEY"] = st.secrets["DORY_API_KEY"]
     except Exception:
-        # No secrets file or key, env/.env will be used by Settings
         pass
 
     settings = Settings()
-    # Ensure RAG is enabled for this Streamlit-only deployment
     settings.enable_rag = True
     return settings
 
@@ -107,6 +202,8 @@ def build_context_block(hits: List[Dict[str, Any]]) -> str:
 
 
 # ----------------- Manual override for summit program -----------------
+
+
 def try_manual_program_answer(user_text: str) -> str | None:
     """
     Manual override for Summit program questions.
@@ -115,14 +212,12 @@ def try_manual_program_answer(user_text: str) -> str | None:
     """
     q = user_text.lower()
 
-    # Simple intent checks
     is_summit = "summit" in q or "digital engineering summit" in q
     asks_program = any(w in q for w in ["program", "agenda", "schedule", "what is on"])
 
     asks_day1 = any(w in q for w in ["day 1", "day one", "monday", "24"])
     asks_day2 = any(w in q for w in ["day 2", "day two", "tuesday", "25"])
 
-    # Day 1 only
     if is_summit and asks_program and asks_day1:
         return (
             "Here is the program for Day 1 of the 2nd Australian Digital Engineering Summit "
@@ -158,11 +253,8 @@ def try_manual_program_answer(user_text: str) -> str | None:
             "  - Panel: How Can Organisations Use Digital Engineering to Drive Value Across "
             "the Whole Lifecycle?\n"
             "    Facilitator: Ms Kerry Lunney\n\n"
-            "Summit managers: Consec - Conference and Event Management "
-            "(adesummit@consec.com.au, +61 2 6252 1200)."
         )
 
-    # Day 2 only
     if is_summit and asks_program and asks_day2:
         return (
             "Here is the program for Day 2 of the 2nd Australian Digital Engineering Summit "
@@ -181,7 +273,6 @@ def try_manual_program_answer(user_text: str) -> str | None:
             "(adesummit@consec.com.au, +61 2 6252 1200)."
         )
 
-    # Full two day program
     if is_summit and asks_program and not (asks_day1 or asks_day2):
         return (
             "Here is a summary of the two day program for the 2nd Australian Digital Engineering Summit:\n\n"
@@ -200,7 +291,7 @@ def try_manual_program_answer(user_text: str) -> str | None:
             "  In person:\n"
             "    - Mission Engineering Advanced Workshop (morning)\n"
             "    - Low Cost Digitisation for SMEs: Unlocking Industry 4.0 Benefits (afternoon)\n\n"
-            "For any last minute updates or room details, please refer to the official Summit website."
+            "For any last minute updates or room details, please refer to the official Summit website: https://consec.eventsair.com/2nd-australian-digital-engineering-summit"
         )
 
     return None
@@ -225,6 +316,41 @@ def get_icon_path() -> str | None:
 
 ICON_PATH = get_icon_path()
 
+
+# --- Analytics bar ---
+
+
+def render_analytics_sidebar() -> None:
+    if not is_admin():
+        return
+
+    log = get_global_log()
+
+    st.sidebar.header("Analytics")
+
+    st.sidebar.write(f"Total turns: {len(log)}")
+
+    if log:
+        de_count = sum(1 for r in log if r.get("domain") == "de")
+        summit_count = sum(1 for r in log if r.get("domain") == "summit")
+        other_count = len(log) - de_count - summit_count
+        override_count = sum(1 for r in log if r.get("manual_override"))
+
+        st.sidebar.write(f"DE queries: {de_count}")
+        st.sidebar.write(f"Summit queries: {summit_count}")
+        st.sidebar.write(f"Other: {other_count}")
+        st.sidebar.write(f"Manual program answers: {override_count}")
+
+        import json
+
+        st.sidebar.download_button(
+            "Download chat log (JSON)",
+            data=json.dumps(log, ensure_ascii=False, indent=2),
+            file_name="dory_chat_log.json",
+            mime="application/json",
+        )
+
+
 # ----------------- Page config -----------------
 
 st.set_page_config(
@@ -232,6 +358,8 @@ st.set_page_config(
     page_icon=ICON_PATH,
     layout="centered",
 )
+
+render_analytics_sidebar()
 
 st.title("Dory - Digital Engineering Assistant")
 
@@ -257,21 +385,30 @@ st.markdown("---")
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
+
 # ----------------- Core generation logic -----------------
 
 
 def generate_answer(user_text: str) -> str:
-    # Manual override for Summit program questions
+    # 1) Manual override for Summit program questions
     manual = try_manual_program_answer(user_text)
     if manual is not None:
+        log_event(
+            user_text,
+            manual,
+            domain="summit",
+            used_rag=False,
+            manual_override=True,
+            model="manual",
+        )
         return manual
 
+    # 2) Normal generation path
     settings = get_settings()
     client = get_openai_client(settings)
     index = get_rag_index()
     compact_prompt, full_prompt = get_prompts(settings)
 
-    # Decide if this is the first turn for prompt_mode logic
     is_first_turn = len(st.session_state.messages) == 0
 
     messages: List[Dict[str, str]] = []
@@ -286,8 +423,10 @@ def generate_answer(user_text: str) -> str:
     if include_full and full_prompt:
         messages.append({"role": "system", "content": full_prompt})
 
-    # RAG context
+    # 3) RAG context
     context_block = ""
+    domain = None
+    used_rag = False
     if settings.enable_rag and index is not None:
         try:
             hits, domain = search(
@@ -298,23 +437,39 @@ def generate_answer(user_text: str) -> str:
             )
             if hits:
                 context_block = build_context_block(hits)
+                used_rag = True
         except Exception:
             context_block = ""
+            domain = None
+            used_rag = False
 
     if context_block:
         messages.append({"role": "system", "content": context_block})
 
     messages.append({"role": "user", "content": user_text})
 
+    # 4) Call model
     try:
         resp = client.responses.create(
             model=settings.default_model,
             input=messages,
             temperature=0.5,
         )
-        return resp.output_text
+        answer = resp.output_text
     except Exception as e:
-        return f"Sorry, I had a problem generating a response. ({e})"
+        answer = f"Sorry, I had a problem generating a response. ({e})"
+
+    # 5) Log turn for analytics
+    log_event(
+        user_text,
+        answer,
+        domain=domain,
+        used_rag=used_rag,
+        manual_override=False,
+        model=settings.default_model,
+    )
+
+    return answer
 
 
 # ----------------- Chat UI -----------------
@@ -325,12 +480,10 @@ with cols[0]:
         st.session_state.messages = []
         st.rerun()
 
-# Show history
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# Input
 user_input = st.chat_input("Ask me anything about Digital Engineering or the Summit...")
 
 if user_input:
