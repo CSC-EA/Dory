@@ -44,7 +44,7 @@ def get_dory_logo_html() -> str:
                 b64 = base64.b64encode(data).decode("utf-8")
                 return (
                     f'<img src="data:image/png;base64,{b64}" '
-                    f'width="64" style="margin-right: 1rem;">'
+                    f'width="120" style="margin-right: 1rem;">'
                 )
             except Exception:
                 return ""
@@ -473,23 +473,23 @@ def apply_custom_styling():
     custom_css = """
     <style>
         html, body {
-            background-color: #e9ecef !important;  /* darker light grey */
+            background-color: rgba(0, 0, 0, 0.3) !important;  /* darker light grey */
         }
 
         [data-testid="stAppViewContainer"] {
-            background-color: #e9ecef !important;
+            background-color: rgba(0, 0, 0, 0.3) !important;
         }
 
         [data-testid="stAppViewContainer"] > .main {
-            background-color: #e9ecef !important;
+            background-color: rgba(0, 0, 0, 0.3) !important;
         }
 
         [data-testid="block-container"] {
-            background-color: #e9ecef !important;
+            background-color: rgba(0, 0, 0, 0.3) !important;
         }
 
         [data-testid="stSidebar"] {
-            background-color: #ffffff !important;
+            background-color: rgba(0, 0, 0, 1) !important;
         }
 
         .gold-header {
