@@ -10,38 +10,6 @@ from openai import OpenAI
 from server.retrieval import RAGIndex, search
 from server.settings import Settings
 
-
-def debug_environment():
-    """Temporary debug function to check environment variables"""
-    st.sidebar.title("🔧 Debug Info")
-    st.sidebar.write("Checking Streamlit secrets and environment...")
-
-    # Check Streamlit secrets
-    try:
-        secrets_keys = list(st.secrets.keys())
-        st.sidebar.write("Secrets keys:", secrets_keys)
-        if "DORY_API_KEY" in st.secrets:
-            st.sidebar.success("✅ DORY_API_KEY found in secrets!")
-            st.sidebar.write(
-                "Key value (first 10 chars):", st.secrets["DORY_API_KEY"][:10] + "..."
-            )
-        else:
-            st.sidebar.error("❌ DORY_API_KEY NOT in secrets!")
-    except Exception as e:
-        st.sidebar.error(f"Secrets error: {e}")
-
-    # Check environment variables
-    env_vars = [
-        k
-        for k in os.environ.keys()
-        if any(word in k for word in ["DORY", "API", "KEY"])
-    ]
-    st.sidebar.write("Relevant env vars:", env_vars)
-
-    # Show all secrets for comprehensive debugging
-    st.sidebar.write("All secrets:", dict(st.secrets))
-
-
 # ----------------- Settings and clients -----------------
 
 
@@ -51,9 +19,6 @@ def get_settings() -> Settings:
     Load Settings once, trying to use Streamlit secrets if present,
     otherwise falling back to env/.env.
     """
-
-    # Call debug function
-    debug_environment()
 
     try:
         # This will raise if secrets are not configured (local dev case)
