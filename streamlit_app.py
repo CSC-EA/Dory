@@ -613,6 +613,23 @@ def render_analytics_sidebar() -> None:
             mime="application/json",
         )
 
+        # CSV download from the on disk log
+    root = Path(__file__).resolve().parent
+    csv_path = root / "admin" / "logs" / "chat_log.csv"
+
+    if csv_path.exists():
+        with csv_path.open("r", encoding="utf-8") as f:
+            csv_content = f.read()
+
+        st.sidebar.download_button(
+            "All logs (CSV)",
+            data=csv_content,
+            file_name="chat_log.csv",
+            mime="text/csv",
+        )
+    else:
+        st.sidebar.write("No CSV log file found yet.")
+
 
 # ----------------- Page config -----------------
 
