@@ -1,5 +1,6 @@
 # streamlit_app.py
 
+import base64
 import os
 import uuid
 from datetime import datetime
@@ -8,11 +9,28 @@ from typing import Any, Dict, List
 
 import streamlit as st
 from openai import OpenAI
+from PIL import Image
 
 from server.retrieval import RAGIndex, search
 from server.settings import Settings
 
 # ----------------- Global logging helpers -----------------
+
+
+def get_unsw_logo_html() -> str:
+    if not UNSW_LOGO_PATH:
+        return ""
+    try:
+        data = Path(UNSW_LOGO_PATH).read_bytes()
+        b64 = base64.b64encode(data).decode("utf-8")
+
+        # Use png as default; if you know it is jpg, change mime type
+        return (
+            f'<img src="data:image/png;base64,{b64}" '
+            f'width="80" style="margin-left: 1rem;">'
+        )
+    except Exception:
+        return ""
 
 
 @st.cache_resource
@@ -238,12 +256,12 @@ def _classify_program_request(q: str) -> str | None:
     """
     Return "day1", "day2", "both" or None.
 
-    Only checks for program-ish queries, does not decide
+    Only checks for program-like queries, does not decide
     whether this is Summit or general DE.
     """
     q = q.lower()
 
-    # Must look like a program/agenda/schedule query
+    # Must look like a program or schedule question
     if not any(
         w in q
         for w in [
@@ -254,9 +272,15 @@ def _classify_program_request(q: str) -> str | None:
             "what is happening",
             "line up",
             "sessions on",
+            "workshop",
+            "session",
         ]
     ):
         return None
+
+    # Special case: Braden's workshop is on Day 2
+    if "braden" in q and "workshop" in q:
+        return "day2"
 
     day1_tokens = ["day 1", "day one", "monday", "24"]
     day2_tokens = ["day 2", "day two", "tuesday", "25"]
@@ -275,21 +299,28 @@ def _classify_program_request(q: str) -> str | None:
     return "both"
 
 
-def try_manual_program_answer(user_text: str, in_summit_context: bool) -> str | None:
+def try_manual_program_answer(
+    user_text: str,
+    in_summit_context: bool,
+) -> tuple[str | None, str | None]:
     """
-    Manual override for Summit program questions.
+    Manual override and context builder for Summit program questions.
 
-    Uses:
-      - Current question text
-      - Whether the session is already in summit_mode
-    to decide whether to intercept the question.
+    Returns:
+        (answer, kind)
+
+        - answer: the program text or None
+        - kind:
+            "program"  -> specific day program (day1 or day2)
+            "summary"  -> both days summary
+            None       -> no manual handling
     """
     q = _normalize(user_text)
 
     # 1) Is this a program-like question at all?
     day_type = _classify_program_request(q)
     if day_type is None:
-        return None
+        return None, None
 
     # 2) Decide if we should treat this as Summit related
     is_explicit_summit = _looks_like_summit_question(q)
@@ -298,67 +329,64 @@ def try_manual_program_answer(user_text: str, in_summit_context: bool) -> str | 
     if not is_summit:
         # It is a program question, but we do not have evidence
         # that it is about the Summit, so let the model handle it.
-        return None
+        return None, None
 
-    # 3) Now we know: program-ish AND Summit context, so override
+    # 3) Now we know: program-ish and Summit context
 
-    if day_type == "day1":
-        return (
-            "Here is the program for Day 1 of the 2nd Australian Digital Engineering Summit "
-            "(Monday 24 November 2025, National Convention Centre Canberra):\n\n"
-            "8:00 - 9:00\n"
-            "  Registration opens\n\n"
-            "9:00 - 10:30  Summit Opening and SESSION 1: Engineering Digital Transformation\n"
-            "  - Welcome to Country and Welcome to the Summit: Prof Sondoss Elsawah\n"
-            "  - Welcome to UNSW Canberra and Opening: Prof Emma Sparks\n"
-            "  - Speakers: Mr Terry Saunder, Dr Stephen Craig, Ms Kerry Lunney\n"
-            "  - Panel: Transformation Through Digital Engineering: How Will We Get There?\n"
-            "    Facilitator: Ms Rachel Hatton\n\n"
-            "10:30 - 11:00\n"
-            "  Morning tea and networking\n\n"
-            "11:05 - 12:30  SESSION 2: Driving Innovations Across the Digital Engineering Ecosystem\n"
-            "  - Speakers: Dr Barclay Brown, Mr Thomas A. McDermott, Dr Sam Davey, "
-            "BRIG GEN (ret) Steve Bleymaier\n"
-            "  - Panel: Building the Digital Engineering Ecosystem - "
-            "Prioritising Technological and Innovation Investments\n"
-            "    Facilitator: Mr Allan Dundas\n\n"
-            "12:30 - 13:30\n"
-            "  Lunch and networking\n\n"
-            "13:35 - 14:50  SESSION 3: Driving the Adoption of Digital Engineering - "
-            "Recruitment, Skillsets and Career Pathways\n"
-            "  - Speakers: Ms Lucy Poole, Prof Sondoss Elsawah, BRIG Jennifer Harris\n"
-            "  - Panel: Creating the Digital Workforce: What Are Opportunities and Challenges?\n"
-            "    Facilitator: Ms Heather Nicoll\n\n"
-            "14:55 - 15:30\n"
-            "  Afternoon tea and networking\n\n"
-            "15:35 - 17:00  SESSION 4: Digital Engineering - Creating and Realizing New Value "
-            "and Summit Closing\n"
-            "  - Speakers: Mr Jawahar Bhalla, Mr Adrian Piani, CDRE Andrew Macalister\n"
-            "  - Panel: How Can Organisations Use Digital Engineering to Drive Value Across "
-            "the Whole Lifecycle?\n"
-            "    Facilitator: Ms Kerry Lunney\n\n"
-        )
+    day1_text = (
+        "Here is the program for Day 1 of the 2nd Australian Digital Engineering Summit "
+        "(Monday 24 November 2025, National Convention Centre Canberra):\n\n"
+        "8:00 - 9:00\n"
+        "  Registration opens\n\n"
+        "9:00 - 10:30  Summit Opening and SESSION 1: Engineering Digital Transformation\n"
+        "  - Welcome to Country and Welcome to the Summit: Prof Sondoss Elsawah\n"
+        "  - Welcome to UNSW Canberra and Opening: Prof Emma Sparks\n"
+        "  - Speakers: Mr Terry Saunder, Dr Stephen Craig, Ms Kerry Lunney\n"
+        "  - Panel: Transformation Through Digital Engineering: How Will We Get There?\n"
+        "    Facilitator: Ms Rachel Hatton\n\n"
+        "10:30 - 11:00\n"
+        "  Morning tea and networking\n\n"
+        "11:05 - 12:30  SESSION 2: Driving Innovations Across the Digital Engineering Ecosystem\n"
+        "  - Speakers: Dr Barclay Brown, Mr Thomas A. McDermott, Dr Sam Davey, "
+        "BRIG GEN (ret) Steve Bleymaier\n"
+        "  - Panel: Building the Digital Engineering Ecosystem - "
+        "Prioritising Technological and Innovation Investments\n"
+        "    Facilitator: Mr Allan Dundas\n\n"
+        "12:30 - 13:30\n"
+        "  Lunch and networking\n\n"
+        "13:35 - 14:50  SESSION 3: Driving the Adoption of Digital Engineering - "
+        "Recruitment, Skillsets and Career Pathways\n"
+        "  - Speakers: Ms Lucy Poole, Prof Sondoss Elsawah, BRIG Jennifer Harris\n"
+        "  - Panel: Creating the Digital Workforce: What Are Opportunities and Challenges?\n"
+        "    Facilitator: Ms Heather Nicoll\n\n"
+        "14:55 - 15:30\n"
+        "  Afternoon tea and networking\n\n"
+        "15:35 - 17:00  SESSION 4: Digital Engineering - Creating and Realizing New Value "
+        "and Summit Closing\n"
+        "  - Speakers: Mr Jawahar Bhalla, Mr Adrian Piani, CDRE Andrew Macalister\n"
+        "  - Panel: How Can Organisations Use Digital Engineering to Drive Value Across "
+        "the Whole Lifecycle?\n"
+        "    Facilitator: Ms Kerry Lunney\n\n"
+    )
 
-    if day_type == "day2":
-        return (
-            "Here is the program for Day 2 of the 2nd Australian Digital Engineering Summit "
-            "(Tuesday 25 November 2025):\n\n"
-            "Online delivery:\n"
-            "  9:00 - 13:00  Applications of Generative AI with Large Language Models (online)\n"
-            "    Facilitator: Dr Barclay Brown\n\n"
-            "  13:00 - 16:00  Mission Engineering Primer (online)\n"
-            "    Facilitator: Dr Braden McGrath\n\n"
-            "In person delivery:\n"
-            "  9:00 - 12:00  Mission Engineering Advanced Workshop (in person)\n"
-            "    Facilitator: Dr Braden McGrath\n\n"
-            "  13:00 - 15:00  Low Cost Digitisation for SMEs: Unlocking Industry 4.0 Benefits (in person)\n"
-            "    Facilitators: Dr Matthew Doolan and Dr Michael Stevens\n\n"
-            "Summit managers: Consec - Conference and Event Management "
-            "(adesummit@consec.com.au, +61 2 6252 1200)."
-        )
+    day2_text = (
+        "Here is the program for Day 2 of the 2nd Australian Digital Engineering Summit "
+        "(Tuesday 25 November 2025):\n\n"
+        "Online delivery:\n"
+        "  9:00 - 13:00  Applications of Generative AI with Large Language Models (online)\n"
+        "    Facilitator: Dr Barclay Brown\n\n"
+        "  13:00 - 16:00  Mission Engineering Primer (online)\n"
+        "    Facilitator: Dr Braden McGrath\n\n"
+        "In person delivery:\n"
+        "  9:00 - 12:00  Mission Engineering Advanced Workshop (in person)\n"
+        "    Facilitator: Dr Braden McGrath\n\n"
+        "  13:00 - 15:00  Low Cost Digitisation for SMEs: Unlocking Industry 4.0 Benefits (in person)\n"
+        "    Facilitators: Dr Matthew Doolan and Dr Michael Stevens\n\n"
+        "Summit managers: Consec - Conference and Event Management "
+        "(adesummit@consec.com.au, +61 2 6252 1200)."
+    )
 
-    # "both" or generic program question in Summit context
-    return (
+    both_text = (
         "Here is a summary of the two day program for the 2nd Australian Digital Engineering Summit:\n\n"
         "Day 1 - Monday 24 November 2025 (National Convention Centre Canberra)\n"
         "  - Registration from 8:00\n"
@@ -379,68 +407,88 @@ def try_manual_program_answer(user_text: str, in_summit_context: bool) -> str | 
         "https://consec.eventsair.com/2nd-australian-digital-engineering-summit"
     )
 
+    if day_type == "day1":
+        return day1_text, "program"
+    if day_type == "day2":
+        return day2_text, "program"
+
+    # "both" or generic program question in Summit context
+    return both_text, "summary"
+
 
 # ----------------- Icon helper -----------------
 
 
-def get_icon_paths() -> tuple[str | None, str | None]:
-    """Return both Dory icon path and UNSW logo path - scan once"""
+@st.cache_resource
+def load_icons():
+    """
+    Load Dory icon as a PIL image for page_icon, and return
+    the filesystem path of the UNSW logo for later embedding.
+    """
     root = Path(__file__).resolve().parent
-    static_dir = root / "static"
 
-    dory_path = None
-    unsw_path = None
+    dory_icon = None
+    unsw_logo_path = None
 
-    # Scan static directory once for both icons
-    if static_dir.exists():
-        for file_path in static_dir.iterdir():
-            if file_path.is_file():
-                if "dory" in file_path.name.lower() and file_path.suffix.lower() in [
-                    ".png",
-                    ".jpg",
-                    ".jpeg",
-                ]:
-                    dory_path = str(file_path)
-                elif "unsw" in file_path.name.lower() and file_path.suffix.lower() in [
-                    ".png",
-                    ".jpg",
-                    ".jpeg",
-                ]:
-                    unsw_path = str(file_path)
+    try:
+        dory_icon = Image.open(root / "static" / "dory.png")
+    except Exception:
+        try:
+            dory_icon = Image.open(root / "static" / "dory.jpg")
+        except Exception:
+            dory_icon = None
 
-    return dory_path, unsw_path
+    # You only need the path for UNSW logo, we will embed it as base64
+    for name in ["unsw_logo.png", "unsw_logo.jpg", "unsw.png", "unsw.jpg"]:
+        candidate = root / "static" / name
+        if candidate.exists():
+            unsw_logo_path = str(candidate)
+            break
+
+    return dory_icon, unsw_logo_path
 
 
-DORY_ICON_PATH, UNSW_LOGO_PATH = get_icon_paths()
+DORY_ICON, UNSW_LOGO_PATH = load_icons()
 
 
 def apply_custom_styling():
-    """Apply custom CSS for background color and UNSW gold header"""
     custom_css = """
     <style>
-        /* Change background color from black to light grey */
-        .main .block-container {
-            background-color: #f8f9fa;
+        html, body {
+            background-color: #f8f9fa !important;
         }
-        
-        /* UNSW Gold header background */
+
+        [data-testid="stAppViewContainer"] {
+            background-color: #f8f9fa !important;
+        }
+
+        [data-testid="stAppViewContainer"] > .main {
+            background-color: #f8f9fa !important;
+        }
+
+        [data-testid="block-container"] {
+            background-color: #f8f9fa !important;
+        }
+
+        [data-testid="stSidebar"] {
+            background-color: #ffffff !important;
+        }
+
         .gold-header {
-            background-color: #FFCD00;  /* UNSW Gold */
+            background-color: #FFCD00;
             padding: 1.5rem;
             border-radius: 0.5rem;
             margin-bottom: 2rem;
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
-        
-        /* Header title styling */
+
         .header-title {
-            color: #000000;  /* UNSW Black */
+            color: #000000;
             margin: 0;
             font-size: 2.5rem;
             font-weight: 700;
         }
-        
-        /* Logo container */
+
         .logo-container {
             display: flex;
             justify-content: center;
@@ -512,11 +560,11 @@ def render_analytics_sidebar() -> None:
     st.sidebar.write(f"Manual overrides: {override_count}")
     st.sidebar.write(f"RAG used: {rag_count}")
 
-    # Conversation flow preview
-    st.sidebar.subheader("Conversation flow")
-    for i, turn in enumerate(session_data):
-        preview = (turn["user_text"] or "")[:60]
-        st.sidebar.write(f"{i + 1}. {preview}...")
+    # # Conversation flow preview
+    # st.sidebar.subheader("Conversation flow")
+    # for i, turn in enumerate(session_data):
+    #     preview = (turn["user_text"] or "")[:60]
+    #     st.sidebar.write(f"{i + 1}. {preview}...")
 
     # Download buttons
     import json
@@ -552,7 +600,7 @@ def render_analytics_sidebar() -> None:
 
 st.set_page_config(
     page_title="Dory - Digital Engineering Assistant",
-    page_icon=DORY_ICON_PATH,
+    page_icon=DORY_ICON if DORY_ICON is not None else "🤖",
     layout="centered",
 )
 
@@ -569,7 +617,7 @@ header_html = f"""
             <h1 class="header-title">Dory - Digital Engineering Assistant</h1>
         </div>
         <div class="logo-container">
-            {f'<img src="{UNSW_LOGO_PATH}" width="80" style="margin-left: 1rem;">' if UNSW_LOGO_PATH else ""}
+            {get_unsw_logo_html()}
         </div>
     </div>
 </div>
@@ -608,17 +656,39 @@ if "summit_mode" not in st.session_state:
 
 
 def generate_answer(user_text: str) -> str:
-    # Update summit conversation context flag
+    # Normalized lowercased version for heuristics
     q_lower = _normalize(user_text)
+
+    # Update summit conversation context flag
     if _looks_like_summit_question(q_lower):
         st.session_state.summit_mode = True
 
-    # 1) Manual override for Summit program questions
-    manual = try_manual_program_answer(user_text, st.session_state.summit_mode)
-    if manual is not None:
+    # 1) Manual override and context for Summit program questions
+    manual_answer, manual_kind = try_manual_program_answer(
+        user_text,
+        st.session_state.summit_mode,
+    )
+
+    # Heuristic: pure program questions get the manual answer directly
+    # while recommendation or preference questions use manual as context.
+    is_recommendation = any(
+        kw in q_lower
+        for kw in [
+            "which ",
+            "recommend",
+            "should i",
+            "good for me",
+            "suitable",
+            "best",
+            "what should i attend",
+        ]
+    )
+
+    if manual_answer and manual_kind == "program" and not is_recommendation:
+        # Direct schedule answer, no model call
         log_event(
             user_text=user_text,
-            answer=manual,
+            answer=manual_answer,
             domain="summit",
             used_rag=False,
             manual_override=True,
@@ -628,7 +698,7 @@ def generate_answer(user_text: str) -> str:
             output_tokens=0,
             cached_tokens=0,
         )
-        return manual
+        return manual_answer
 
     # 2) Normal generation path
     settings = get_settings()
@@ -638,6 +708,35 @@ def generate_answer(user_text: str) -> str:
 
     is_first_turn = len(st.session_state.messages) == 0
 
+    # 3) RAG context
+    context_block = ""
+    domain = None
+    used_rag = False
+
+    # Bias search toward summit documents when applicable
+    summit_hint = (
+        "summit"
+        if st.session_state.summit_mode or _looks_like_summit_question(q_lower)
+        else None
+    )
+
+    if settings.enable_rag and index is not None:
+        try:
+            hits, domain = search(
+                user_text,
+                settings,
+                index,
+                domain_hint=summit_hint,
+            )
+            if hits:
+                context_block = build_context_block(hits)
+                used_rag = True
+        except Exception:
+            context_block = ""
+            domain = None
+            used_rag = False
+
+    # 4) Build messages with system prompts, manual program context, RAG context and history
     messages: List[Dict[str, str]] = []
     messages.append({"role": "system", "content": compact_prompt})
 
@@ -650,32 +749,32 @@ def generate_answer(user_text: str) -> str:
     if include_full and full_prompt:
         messages.append({"role": "system", "content": full_prompt})
 
-    # 3) RAG context
-    context_block = ""
-    domain = None
-    used_rag = False
-    if settings.enable_rag and index is not None:
-        try:
-            hits, domain = search(
-                user_text,
-                settings,
-                index,
-                domain_hint=None,
-            )
-            if hits:
-                context_block = build_context_block(hits)
-                used_rag = True
-        except Exception:
-            context_block = ""
-            domain = None
-            used_rag = False
+    # If we have a manual Summit program text, feed it as trusted context
+    if manual_answer:
+        messages.append(
+            {
+                "role": "system",
+                "content": "Summit program context:\n" + manual_answer,
+            }
+        )
 
     if context_block:
         messages.append({"role": "system", "content": context_block})
 
-    messages.append({"role": "user", "content": user_text})
+    # Add recent chat history (including the current user turn that was
+    # already appended to st.session_state.messages in the UI code)
+    history: List[Dict[str, str]] = []
+    for msg in st.session_state.messages[-10:]:
+        if msg["role"] in ("user", "assistant"):
+            history.append({"role": msg["role"], "content": msg["content"]})
 
-    # 4) Call model
+    # Fallback in case history is empty or last message is not the current user text
+    if not history or history[-1]["role"] != "user":
+        history.append({"role": "user", "content": user_text})
+
+    messages.extend(history)
+
+    # 5) Call model
     input_tokens = output_tokens = cached_tokens = 0
 
     try:
@@ -694,7 +793,7 @@ def generate_answer(user_text: str) -> str:
     except Exception as e:
         answer = f"Sorry, I had a problem generating a response. ({e})"
 
-    # 5) Log turn for analytics
+    # 6) Log turn for analytics
     log_event(
         user_text=user_text,
         answer=answer,
