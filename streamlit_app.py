@@ -717,7 +717,7 @@ st.markdown(header_html, unsafe_allow_html=True)
 st.markdown(
     """
     <div style="text-align: center; margin: -1rem 0 2rem 0;">
-        <span style="background: #000000; color: #FFCD00; padding: 6px 16px; border-radius: 8px; font-size: 0.9rem; font-weight: 600;">
+        <span style="background: #000000; color: #ef881f; padding: 6px 16px; border-radius: 8px; font-size: 0.9rem; font-weight: 600;">
             🚀 BETA VERSION - We're actively improving Dory!
         </span>
     </div>
