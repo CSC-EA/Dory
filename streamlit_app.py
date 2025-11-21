@@ -672,25 +672,6 @@ render_analytics_sidebar()
 apply_custom_styling()
 
 # UNSW Gold header with title and logo INSIDE
-# header_html = f"""
-# <div class="gold-header">
-#     <div style="display: flex; justify-content: space-between; align-items: center;">
-#         <div style="display: flex; align-items: center;">
-#             <div class="logo-container">
-#                 {get_dory_logo_html()}
-#             </div>
-#             <div>
-#                 <h1 class="header-title">Dory - Digital Engineering Assistant</h1>
-#             </div>
-#         </div>
-#         <div class="logo-container">
-#             {get_unsw_logo_html()}
-#         </div>
-#     </div>
-# </div>
-# """
-
-# UNSW Gold header with title and logo INSIDE
 header_html = f"""
 <div class="gold-header">
     <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -700,9 +681,6 @@ header_html = f"""
             </div>
             <div>
                 <h1 class="header-title">Dory - Digital Engineering Assistant</h1>
-                <div style="background: #000000; color: white; padding: 4px 12px; border-radius: 8px; font-size: 0.8rem; display: inline-block; margin-top: 4px;">
-                    BETA VERSION
-                </div>
             </div>
         </div>
         <div class="logo-container">
@@ -711,8 +689,41 @@ header_html = f"""
     </div>
 </div>
 """
+
+# UNSW Gold header with title and logo INSIDE
+# header_html = f"""
+# <div class="gold-header">
+#     <div style="display: flex; justify-content: space-between; align-items: center;">
+#         <div style="display: flex; align-items: center;">
+#             <div class="logo-container">
+#                 {get_dory_logo_html()}
+#             </div>
+#             <div>
+#                 <h1 class="header-title">Dory - Digital Engineering Assistant</h1>
+#                 <div style="background: #000000; color: white; padding: 4px 12px; border-radius: 8px; font-size: 0.8rem; display: inline-block; margin-top: 4px;">
+#                     BETA VERSION
+#                 </div>
+#             </div>
+#         </div>
+#         <div class="logo-container">
+#             {get_unsw_logo_html()}
+#         </div>
+#     </div>
+# </div>
+# """
 st.markdown(header_html, unsafe_allow_html=True)
 
+# Beta version indicator
+st.markdown(
+    """
+    <div style="text-align: center; margin: -1rem 0 2rem 0;">
+        <span style="background: #FFCD00; color: #000000; padding: 6px 16px; border-radius: 16px; font-size: 0.9rem; font-weight: 600;">
+            🚀 BETA VERSION - We're actively improving Dory!
+        </span>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 st.write(
     """
