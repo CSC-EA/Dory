@@ -139,8 +139,6 @@ def log_event(
 
     # Save to Neon Postgres DB
     try:
-        from datetime import datetime
-
         with get_session() as db:
             db_log = ChatLog(
                 ts=datetime.fromisoformat(entry["timestamp"]),
