@@ -674,6 +674,25 @@ render_analytics_sidebar()
 apply_custom_styling()
 
 # UNSW Gold header with title and logo INSIDE
+# header_html = f"""
+# <div class="gold-header">
+#     <div style="display: flex; justify-content: space-between; align-items: center;">
+#         <div style="display: flex; align-items: center;">
+#             <div class="logo-container">
+#                 {get_dory_logo_html()}
+#             </div>
+#             <div>
+#                 <h1 class="header-title">Dory - Digital Engineering Assistant</h1>
+#             </div>
+#         </div>
+#         <div class="logo-container">
+#             {get_unsw_logo_html()}
+#         </div>
+#     </div>
+# </div>
+# """
+
+# UNSW Gold header with title and logo INSIDE
 header_html = f"""
 <div class="gold-header">
     <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -683,6 +702,9 @@ header_html = f"""
             </div>
             <div>
                 <h1 class="header-title">Dory - Digital Engineering Assistant</h1>
+                <div style="background: #003C71; color: white; padding: 4px 12px; border-radius: 12px; font-size: 0.8rem; display: inline-block; margin-top: 4px;">
+                    BETA VERSION
+                </div>
             </div>
         </div>
         <div class="logo-container">

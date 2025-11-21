@@ -1,28 +1,22 @@
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlmodel import Field, SQLModel
 
 
-def now_utc():
-    return datetime.now(timezone.utc)
-
-
-class Message(SQLModel, table=True):
+class ChatLog(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
-    session_id: int
-    role: str
-    text: str
-    created_at: datetime = Field(default_factory=now_utc)
 
+    ts: datetime
+    session_id: str
 
-class Session(SQLModel, table=True):
-    id: int | None = Field(default=None, primary_key=True)
-    started_at: datetime = Field(default_factory=now_utc)
-    last_active_at: datetime = Field(default_factory=now_utc)
-
-
-class Faq(SQLModel, table=True):
-    id: int | None = Field(default=None, primary_key=True)
-    question_norm: str
+    user_text: str
     answer: str
-    created_at: datetime = Field(default_factory=now_utc)
+
+    domain: str | None = None
+    used_rag: bool = False
+    manual_override: bool = False
+    model: str
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cached_tokens: int = 0
