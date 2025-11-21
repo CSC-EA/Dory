@@ -700,7 +700,7 @@ header_html = f"""
             </div>
             <div>
                 <h1 class="header-title">Dory - Digital Engineering Assistant</h1>
-                <div style="background: #000000; color: orange; padding: 4px 12px; border-radius: 8px; font-size: 0.8rem; display: inline-block; margin-top: 4px;">
+                <div style="background: #000000; color: white; padding: 4px 12px; border-radius: 8px; font-size: 0.8rem; display: inline-block; margin-top: 4px;">
                     BETA VERSION
                 </div>
             </div>
